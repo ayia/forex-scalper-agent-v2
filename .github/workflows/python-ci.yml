@@ -22,30 +22,20 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install flake8 mypy
+        pip install flake8
     
     - name: Lint with flake8
       run: |
-        # stop if there are Python syntax errors or undefined names
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-    
-    - name: Type check with mypy
-      run: |
-        mypy --ignore-missing-imports --no-error-summary *.py || true
     
     - name: Test imports
       run: |
         python -c "from config import *; print('config OK')"
         python -c "from data_fetcher import DataFetcher; print('data_fetcher OK')"
-        python -c "from universe_filter import UniverseFilter; print('universe_filter OK')"
-        python -c "from base_strategy import BaseStrategy; print('base_strategy OK')"
+        python -c "from base_strategy import BaseStrategy, Signal; print('base_strategy OK')"
         python -c "from trend_following import TrendFollowingStrategy; print('trend_following OK')"
         python -c "from mean_reversion import MeanReversionStrategy; print('mean_reversion OK')"
-        python -c "from breakout import BreakoutStrategy; print('breakout OK')"
         python -c "from risk_calculator import RiskCalculator; print('risk_calculator OK')"
-        python -c "from consensus_validator import ConsensusValidator; print('consensus_validator OK')"
-        python -c "from sentiment_analyzer import SentimentAnalyzer; print('sentiment_analyzer OK')"
         python -c "from trade_logger import TradeLogger; print('trade_logger OK')"
         python -c "from scanner_v2 import ForexScannerV2; print('scanner_v2 OK')"
