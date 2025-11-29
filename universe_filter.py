@@ -11,8 +11,6 @@ from bs4 import BeautifulSoup
 from loguru import logger
 
 from config import ALL_PAIRS, RISK_PARAMS, get_pip_value
-from data_fetcher import data_fetcher
-
 
 class UniverseFilter:
     """
