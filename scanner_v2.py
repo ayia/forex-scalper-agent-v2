@@ -23,8 +23,8 @@ import logging
 
 # Import de TOUS nos modules existants
 from config import (
-    TRADING_PARAMS, RISK_PARAMS, SMC_PARAMS,
-    INDICATORS, LOG_CONFIG, FOREX_PAIRS, TIMEFRAMES
+        STRATEGY_PARAMS, RISK_PARAMS,
+        LOG_CONFIG, ALL_PAIRS, TIMEFRAMES
 )
 from data_fetcher import DataFetcher
 from universe_filter import UniverseFilter
@@ -73,10 +73,8 @@ class ForexScannerV2:
         ]
         
         # Configuration depuis config.py
-        self.pairs = FOREX_PAIRS
-        self.timeframes = TIMEFRAMES
-        self.min_confidence = TRADING_PARAMS.get('min_confidence', 70)
-        
+        self.pairs = [f"{p}=X" for p in ALL_PAIRS]        self.timeframes = TIMEFRAMES
+        self.min_confidence = RISK_PARAMS.get('confidence_threshold', 70)        
         logger.info(f"Paires configurées: {len(self.pairs)}")
         logger.info(f"Timeframes: {self.timeframes}")
         logger.info(f"Stratégies actives: {[s.name for s in self.strategies]}")
