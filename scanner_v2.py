@@ -73,8 +73,9 @@ class ForexScannerV2:
         ]
         
         # Configuration depuis config.py
-        self.pairs = [f"{p}=X" for p in ALL_PAIRS]        self.timeframes = TIMEFRAMES
-        self.min_confidence = RISK_PARAMS.get('confidence_threshold', 70)        
+        self.pairs = [f"{p}=X" for p in ALL_PAIRS]
+        self.timeframes = TIMEFRAMES
+        self.min_confidence = RISK_PARAMS.get('confidence_threshold', 70)
         logger.info(f"Paires configurées: {len(self.pairs)}")
         logger.info(f"Timeframes: {self.timeframes}")
         logger.info(f"Stratégies actives: {[s.name for s in self.strategies]}")
