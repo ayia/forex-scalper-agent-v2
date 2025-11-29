@@ -11,6 +11,7 @@ A multi-pair, multi-timeframe, multi-strategy Forex trading signal detection sys
 - **Multiple Strategies**:
   - Trend Following (EMA Stack + MACD)
   - Mean Reversion (Bollinger Bands + RSI)
+  -   - Breakout (Donchian Channels + Volume)
 - **Risk Management**: ATR-based dynamic SL/TP calculation
 - **Signal Logging**: CSV export of all detected signals
 - **Free API**: Uses yfinance for data (no API key required)
