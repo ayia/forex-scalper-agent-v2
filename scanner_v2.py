@@ -39,6 +39,10 @@ from adaptive_thresholds import get_adaptive_thresholds
 # Configuration du logging
 logging.basicConfig(
     level=getattr(logging, LOG_CONFIG['log_level']),
+    from market_regime_detector import get_regime
+from adaptive_risk_manager import get_adaptive_risk
+from adaptive_strategy_selector import get_active_strategies, StrategySelector
+from correlation_manager import check_pair_correlation, CorrelationManager
 )
 logger = logging.getLogger(__name__)
 
@@ -66,6 +70,11 @@ class ForexScannerV2:
         # Chargement des stratégies
         self.strategies: List[BaseStrategy] = [
             TrendFollowingStrategy(),
+
+                    # NEW: Initialize adaptive modules
+        self.strategy_selector = StrategySelector()
+        self.correlation_manager = CorrelationManager()
+        self.active_pairs = []  # Track currently active/open pairs
             MeanReversionStrategy(),
             BreakoutStrategy()
         ]
