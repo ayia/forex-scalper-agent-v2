@@ -96,7 +96,7 @@ class ForexScannerV2:
         
         try:
                         # Get adaptive thresholds for this pair (dynamic based on session, volatility, pair)
-                        adaptive_th = get_adaptive_thresholds(pair)
+                                adaptive_th = get_adaptive_thresholds(pair)
             # 1. Vérification avec UniverseFilter
             if not self.universe_filter.is_tradable(pair):
                 logger.debug(f"{pair_name}: Filtré par UniverseFilter")
