@@ -73,6 +73,19 @@ SCORING_WEIGHTS: Dict[str, int] = {
     "divergence_penalty": -20
 }
 
+# SMC (Smart Money Concepts) PARAMETERS
+SMC_PARAMS: Dict[str, any] = {
+    "swing_lookback": 10,
+    "liquidity_threshold": 0.5,
+}
+
+# INDICATORS CONFIGURATION
+INDICATORS: Dict[str, any] = {
+    "rsi_period": 14,
+    "rsi_overbought": 70,
+    "rsi_oversold": 30,
+}
+
 # API CONFIGURATION
 API_CONFIG: Dict[str, str] = {
     "data_provider": os.getenv("DATA_PROVIDER", "yfinance"),
