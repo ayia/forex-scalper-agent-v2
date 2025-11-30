@@ -36,6 +36,7 @@ from risk_calculator import RiskCalculator
 from consensus_validator import ConsensusValidator
 from sentiment_analyzer import SentimentAnalyzer
 from trade_logger import TradeLogger
+from adaptive_thresholds import get_adaptive_thresholds
 
 # Configuration du logging
 logging.basicConfig(
@@ -74,7 +75,7 @@ class ForexScannerV2:
         # Configuration depuis config.py
         self.pairs = [f"{p}=X" for p in ALL_PAIRS]
         self.timeframes = TIMEFRAMES
-        self.min_confidence = RISK_PARAMS.get('confidence_threshold', 70)
+        adaptive_th['confidence_threshold'] = RISK_PARAMS.get('confidence_threshold', 70)
         logger.info(f"Paires configurées: {len(self.pairs)}")
         logger.info(f"Timeframes: {self.timeframes}")
         logger.info(f"Stratégies actives: {[s.name for s in self.strategies]}")
@@ -94,6 +95,8 @@ class ForexScannerV2:
         pair_name = pair.replace('=X', '')
         
         try:
+                        # Get adaptive thresholds for this pair (dynamic based on session, volatility, pair)
+                        adaptive_th = get_adaptive_thresholds(pair)
             # 1. Vérification avec UniverseFilter
             if not self.universe_filter.is_tradable(pair):
                 logger.debug(f"{pair_name}: Filtré par UniverseFilter")
@@ -153,7 +156,7 @@ class ForexScannerV2:
                                 }
                                 
                                 # Filtrer par confidence minimum
-                                if complete_signal['confidence'] >= self.min_confidence:
+                                if complete_signal['confidence'] >= adaptive_th['confidence_threshold']:
                                     signals.append(complete_signal)
                                     
                                     # 7. Log via TradeLogger
