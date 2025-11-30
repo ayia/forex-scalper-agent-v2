@@ -41,8 +41,7 @@ RISK_PARAMS: Dict[str, float] = {
     "min_rr_ratio": 1.5,
     "target_rr_ratio": 2.0,
     "correlation_threshold": 0.85,
-    "confidence_threshold": 75,
-    "news_filter_minutes": 30
+    "confidence_threshold": 60,    "news_filter_minutes": 30
 }
 
 # STRATEGY INDICATOR PARAMETERS
