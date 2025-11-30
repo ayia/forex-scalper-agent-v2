@@ -12,8 +12,7 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 import logging
 from config import (
-    STRATEGY_PARAMS, RISK_PARAMS,     LOG_CONFIG
-)
+    STRATEGY_PARAMS, RISK_PARAMS, TIMEFRAMES, LOG_CONFIG)
 
 # Configure logging
 logging.basicConfig(
@@ -47,9 +46,9 @@ class ConsensusValidator:
         if self._initialized:
             return
         
-        self.timeframes = STRATEGY_PARAMS['timeframes']
-        self.primary_tf = STRATEGY_PARAMS['primary_timeframe']
-        self.min_score = STRATEGY_PARAMS['min_score']
+        self.timeframes = list(TIMEFRAMES.keys())
+        self.primary_tf = "H1"  # Primary timeframe for consensus
+        self.min_score = 60  # Minimum score threshold for valid signals
         
         # SMC parameters for structure analysis
         self.swing_lookback = SMC_PARAMS['swing_lookback']
