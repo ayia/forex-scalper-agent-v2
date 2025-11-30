@@ -47,9 +47,9 @@ class ConsensusValidator:
         if self._initialized:
             return
         
-        self.timeframes = TRADING_PARAMS['timeframes']
-        self.primary_tf = TRADING_PARAMS['primary_timeframe']
-        self.min_score = TRADING_PARAMS['min_score']
+        self.timeframes = STRATEGY_PARAMS['timeframes']
+        self.primary_tf = STRATEGY_PARAMS['primary_timeframe']
+        self.min_score = STRATEGY_PARAMS['min_score']
         
         # SMC parameters for structure analysis
         self.swing_lookback = SMC_PARAMS['swing_lookback']
