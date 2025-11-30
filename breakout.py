@@ -8,7 +8,7 @@ import pandas_ta as ta
 from typing import Optional, Dict
 from loguru import logger
 
-from base_strategy import BaseStrategy, Signal, SignalType
+from base_strategy import BaseStrategy, Signal
 from config import STRATEGY_PARAMS
 
 
