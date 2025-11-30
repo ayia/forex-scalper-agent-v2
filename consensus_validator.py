@@ -12,8 +12,7 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 import logging
 from config import (
-    TRADING_PARAMS, RISK_PARAMS, SMC_PARAMS,
-    INDICATORS, LOG_CONFIG
+    STRATEGY_PARAMS, RISK_PARAMS,     LOG_CONFIG
 )
 
 # Configure logging
