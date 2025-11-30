@@ -193,4 +193,5 @@ class ForexScannerV2:
                                     'validation_score': validation.get('score', 0),
                                     'sentiment': sentiment,
                                                                     'regime': regime['regime'] if regime else 'unknown',
-                                'regime_confidence'confidence': signal.get('confidence', 50) * weight,  # Apply regime weight
+                                'regime_confidence': regime['confidence'] if regime else 0,
+                                'confidence': signal.get('confidence', 50) * weight,  # Apply regime weight
