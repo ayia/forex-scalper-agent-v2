@@ -107,6 +107,31 @@ class ForexScannerV2:
             # 1. Vérification avec UniverseFilter
             if not self.universe_filter.is_tradable(pair):
                 logger.debug(f"{pair_name}: Filtré par UniverseFilter")
+
+                        # NEW: Detect market regime
+        regime = None
+        if multi_tf_data.get('1h'):  # Use 1H for regime detection
+            regime = get_regime(multi_tf_data['1h'], pair_name)
+            logger.debug(f"{pair_name} Regime: {regime['regime']} (conf: {regime['confidence']}%)")
+        
+        # NEW: Check if we should trade this regime
+        if regime and not self.strategy_selector.should_trade(regime):
+            logger.debug(f"{pair_name}: Regime not suitable for trading")
+            return signals
+        
+        # NEW: Get active strategies for this regime
+        if regime:
+            active_strats = get_active_strategies(regime)
+            strategy_weights = active_strats['strategies']
+        else:
+            strategy_weights = {s.name.lower().replace('strategy', '').strip(): 1.0 
+                               for s in self.strategies}
+        
+        # NEW: Check correlation risk
+        corr_check = check_pair_correlation(self.active_pairs, pair_name)
+        if not corr_check['allow_trade']:
+            logger.debug(f"{pair_name}: Correlation limit reached ({corr_check['reason']})")
+            return signals
                 return signals
             
             # 2. Récupération des données multi-timeframe via DataFetcher
@@ -128,7 +153,15 @@ class ForexScannerV2:
                 for tf, df in multi_tf_data.items():
                     try:
                         signal = strategy.analyze(df, pair)
-                        
+
+                                    # NEW: Check strategy weight
+            strategy_name_key = strategy.name.lower().replace('strategy', '').strip()
+            weight = strategy_weights.get(strategy_name_key, 0.5)
+            
+            # Skip if weight too low
+            if weight < 0.4:
+                continue
+            
                         if signal and signal.get('direction'):
                             # 5. Validation multi-TF via ConsensusValidator
                             validation = self.consensus_validator.validate(
@@ -138,11 +171,14 @@ class ForexScannerV2:
                             if validation.get('is_valid', False):
                                 # 6. Calcul du risque via RiskCalculator
                                 current_price = df['Close'].iloc[-1]
-                                risk_params = self.risk_calculator.calculate(
-                                    pair=pair,
-                                    direction=signal['direction'],
+                                # NEW: Use adaptive risk manager
+                                risk_params = get_adaptive_risk(
                                     entry_price=current_price,
-                                    df=df
+                                    direction=signal['direction'],
+                                    pair=pair_name,
+                                    atr=df['ATR'].iloc[-1] if 'ATR' in df else 0.001,
+                                    regime=regime,
+                                    spread=None  # Can add real spread here
                                 )
                                 
                                 # Construction du signal complet
@@ -156,169 +192,5 @@ class ForexScannerV2:
                                     'confidence': signal.get('confidence', 0),
                                     'validation_score': validation.get('score', 0),
                                     'sentiment': sentiment,
-                                    'risk': risk_params,
-                                    'stop_loss': risk_params.get('stop_loss'),
-                                    'take_profit': risk_params.get('take_profit'),
-                                    'risk_reward': risk_params.get('risk_reward', 0)
-                                }
-                                
-                                # Filtrer par confidence minimum (adaptive!)
-                                if complete_signal['confidence'] >= adaptive_th['confidence_threshold']:
-                                    signals.append(complete_signal)
-                                    
-                                    # 7. Log via TradeLogger
-                                    self.trade_logger.log_signal(complete_signal)
-                                    
-                                    logger.info(
-                                        f"SIGNAL: {pair_name} {tf} "
-                                        f"{signal['direction']} "
-                                        f"[{strategy.name}] "
-                                        f"Conf: {complete_signal['confidence']:.1f}%"
-                                    )
-                    
-                    except Exception as e:
-                        logger.debug(f"Erreur {strategy.name}/{tf}: {e}")
-                        continue
-        
-        except Exception as e:
-            logger.error(f"Erreur scan {pair_name}: {e}")
-        
-        return signals
-    
-    def scan_all(self) -> List[Dict]:
-        """
-        Scanne toutes les paires configurées.
-        
-        Returns:
-            Liste de tous les signaux détectés
-        """
-        logger.info("\n" + "=" * 60)
-        logger.info(f"SCAN COMPLET - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        logger.info("=" * 60)
-        
-        all_signals = []
-        
-        for i, pair in enumerate(self.pairs, 1):
-            logger.info(f"Scanning {pair.replace('=X', '')} ({i}/{len(self.pairs)})...")
-            signals = self.scan_pair(pair)
-            all_signals.extend(signals)
-            
-            # Pause pour éviter rate limiting yfinance
-            if i < len(self.pairs):
-                time.sleep(0.5)
-        
-        # Tri par confidence décroissante
-        all_signals.sort(key=lambda x: x.get('confidence', 0), reverse=True)
-        
-        logger.info(f"\nScan terminé: {len(all_signals)} signaux détectés")
-        
-        return all_signals
-    
-    def run_continuous(self, interval_minutes: int = 5):
-        """
-        Mode de scanning continu.
-        
-        Args:
-            interval_minutes: Intervalle entre les scans
-        """
-        logger.info(f"Mode continu activé (intervalle: {interval_minutes} min)")
-        logger.info("Appuyez sur Ctrl+C pour arrêter")
-        
-        try:
-            while True:
-                signals = self.scan_all()
-                
-                if signals:
-                    print("\n" + "=" * 60)
-                    print("SIGNAUX DÉTECTÉS:")
-                    print("=" * 60)
-                    for sig in signals[:10]:  # Top 10
-                        print(
-                            f"  {sig['pair']:8} {sig['timeframe']:4} "
-                            f"{sig['direction']:5} {sig['strategy']:20} "
-                            f"Conf: {sig['confidence']:.1f}% "
-                            f"R:R {sig['risk_reward']:.2f}"
-                        )
-                
-                logger.info(f"Prochain scan dans {interval_minutes} minutes...")
-                time.sleep(interval_minutes * 60)
-        
-        except KeyboardInterrupt:
-            logger.info("\nArrêt du scanner...")
-    
-    def get_top_signals(self, n: int = 5) -> List[Dict]:
-        """
-        Retourne les N meilleurs signaux actuels.
-        
-        Args:
-            n: Nombre de signaux à retourner
-        
-        Returns:
-            Liste des meilleurs signaux
-        """
-        signals = self.scan_all()
-        return signals[:n]
-
-
-def main():
-    """Point d'entrée principal."""
-    parser = argparse.ArgumentParser(
-        description='Forex Scalper Agent V2 - Scanner Multi-Stratégie'
-    )
-    parser.add_argument(
-        '--once', 
-        action='store_true',
-        help='Exécuter un seul scan puis quitter'
-    )
-    parser.add_argument(
-        '--interval', 
-        type=int, 
-        default=5,
-        help='Intervalle de scan en minutes (défaut: 5)'
-    )
-    parser.add_argument(
-        '--pairs',
-        nargs='+',
-        help='Paires spécifiques à scanner (ex: EURUSD GBPUSD)'
-    )
-    parser.add_argument(
-        '--json',
-        action='store_true',
-        help='Sortie en format JSON'
-    )
-    
-    args = parser.parse_args()
-    
-    # Initialisation du scanner
-    scanner = ForexScannerV2()
-    
-    # Override des paires si spécifiées
-    if args.pairs:
-        scanner.pairs = [f"{p}=X" for p in args.pairs]
-    
-    if args.once:
-        # Mode single scan
-        signals = scanner.scan_all()
-        
-        if args.json:
-            print(json.dumps(signals, indent=2, default=str))
-        else:
-            print(f"\n{'='*60}")
-            print(f"RÉSULTATS DU SCAN - {len(signals)} signaux")
-            print(f"{'='*60}")
-            
-            for sig in signals:
-                print(f"\n[{sig['pair']}] {sig['timeframe']} - {sig['direction'].upper()}")
-                print(f"  Stratégie: {sig['strategy']}")
-                print(f"  Confidence: {sig['confidence']:.1f}%")
-                print(f"  Entry: {sig['entry_price']:.5f}")
-                print(f"  SL: {sig['stop_loss']:.5f}")
-                print(f"  TP: {sig['take_profit']:.5f}")
-                print(f"  R:R: {sig['risk_reward']:.2f}")
-    else:
-        # Mode continu
-        scanner.run_continuous(args.interval)
-
-
-if __name__ == '__main__':
-    main()
+                                                                    'regime': regime['regime'] if regime else 'unknown',
+                                'regime_confidence'confidence': signal.get('confidence', 50) * weight,  # Apply regime weight
