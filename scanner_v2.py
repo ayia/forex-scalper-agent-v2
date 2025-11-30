@@ -39,8 +39,7 @@ from trade_logger import TradeLogger
 
 # Configuration du logging
 logging.basicConfig(
-    level=getattr(logging, LOG_CONFIG['level']),
-    format=LOG_CONFIG['format']
+    level=getattr(logging, LOG_CONFIG['log_level']),
 )
 logger = logging.getLogger(__name__)
 
