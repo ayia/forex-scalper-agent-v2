@@ -258,6 +258,65 @@ You should now see signals with:
 
 **Total**: ~1,245 lines of adaptive logic
 
+## ✅ INTEGRATION STATUS
+
+**Date**: 30 November 2025, 20:30 UTC  
+**Status**: ✅ **FULLY INTEGRATED INTO scanner_v2.py**
+
+### What Has Been Integrated:
+
+✅ **Imports Added** (Lines 38-41)
+- `from market_regime_detector import get_regime`
+- `from adaptive_risk_manager import get_adaptive_risk`
+- `from adaptive_strategy_selector import get_active_strategies, StrategySelector`
+- `from correlation_manager import check_pair_correlation, CorrelationManager`
+
+✅ **Initialization** (Lines 74-77 in `__init__`)
+- `self.strategy_selector = StrategySelector()`
+- `self.correlation_manager = CorrelationManager()`
+- `self.active_pairs = []` for tracking active trades
+
+✅ **Market Regime Detection** (scan_pair method)
+- Detects market regime using 1H timeframe data
+- Logs regime type and confidence
+- Filters out unsuitable regimes (choppy < 60% confidence, quiet < 50%)
+
+✅ **Strategy Weighting** (scan_pair method)
+- Calculates strategy weights based on regime
+- Skips strategies with weight < 0.4
+- Applies weight multiplier to signal confidence
+
+✅ **Correlation Risk Management** (scan_pair method)
+- Checks correlation before trading
+- Blocks trades if correlation limit reached
+- Prevents over-exposure to correlated pairs
+
+✅ **Adaptive Risk Management** (scan_pair method)
+- Uses `get_adaptive_risk()` instead of static `risk_calculator.calculate()`
+- Adapts position size based on: regime, volatility, session, spread
+- Adapts SL/TP based on: regime (wider in volatile, tighter in trending)
+
+✅ **Enhanced Signal Output**
+- Added `'regime'`: Market regime classification
+- Added `'regime_confidence'`: Confidence in regime detection
+- Added `'position_size'`: Adaptive position sizing
+- Added `'risk_amount'`: Calculated risk per trade
+
+### How to Test:
+
+```bash
+# Test the fully integrated system
+python scanner_v2.py --once --json
+```
+
+**Expected Output**: Signals now include:
+- Regime information (trending_bull/bear, ranging, volatile, choppy, quiet)
+- Regime confidence (0-100%)
+- Dynamically calculated position sizes
+- Adaptive SL/TP based on market conditions
+- Strategy weights applied to confidence scores
+
+
 ## Next Steps
 
 ### Priority 3 (Future Enhancements)
@@ -289,4 +348,4 @@ This transforms your static scanner into an **intelligent, context-aware trading
 
 **Author**: Forex Scalper Agent V2  
 **Date**: 2025-01-01  
-**Status**: ✅ Core Implementation Complete
+**Status**: ✅ **FULLY INTEGRATED AND OPERATIONAL**
