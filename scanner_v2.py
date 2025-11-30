@@ -40,7 +40,7 @@ from adaptive_thresholds import get_adaptive_thresholds
 logging.basicConfig(
     level=getattr(logging, LOG_CONFIG['log_level']),
 )
-     from market_regime_detector import get_regime
+     from  market_regime_detector import get_regime
  from adaptive_risk_manager import get_adaptive_risk
  from adaptive_strategy_selector import get_active_strategies, StrategySelector
  from correlation_manager import check_pair_correlation, CorrelationManager
