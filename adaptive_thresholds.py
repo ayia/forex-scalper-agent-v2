@@ -254,6 +254,38 @@ def get_current_session() -> Tuple[str, Dict]:
     # Default to quiet hours
     return "quiet", SESSION_PROFILES["quiet"]
 
+def get_pair_profile(pair: str) -> Dict:
+    """
+    Get the profile configuration for a specific trading pair.
+
+    Args:
+        pair: Trading pair symbol (e.g., "EURUSD")
+
+    Returns:
+        Dict containing pair-specific configuration parameters
+    """
+    # Return pair profile or default values if pair not found
+    default_profile = {
+        "volatility_class": "medium",
+        "base_confidence": 60,
+        "rsi_overbought": 70,
+        "rsi_oversold": 30,
+        "min_rr_ratio": 1.5,
+        "typical_atr_m15": 0.0010,
+        "typical_spread": 1.0
+    }
+    return PAIR_PROFILES.get(pair, default_profile)
+
+def detect_session() -> Tuple[str, Dict]:
+    """
+    Alias for get_current_session() for backward compatibility.
+    Detect current trading session based on UTC time.
+
+    Returns:
+        Tuple of (session_name, session_profile)
+    """
+    return get_current_session()
+
 # ============================================================================
 # PART 3: VOLATILITY REGIME DETECTION
 # ============================================================================
