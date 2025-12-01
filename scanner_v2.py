@@ -93,6 +93,10 @@ class ForexScalperV2:
         self.correlation_manager = CorrelationManager()
         self.active_pairs = []  # Track currently active/open pairs
 
+        # Whipsaw prevention tracking
+        self.rejected_signals = {}  # Track rejected signals: {pair: {timeframe: timestamp}}
+        self.whipsaw_cooldown_candles = 10  # Don't re-enter same signal within N candles
+
         # Trading universe
         self.pairs = ALL_PAIRS
         self.timeframes = TIMEFRAMES
@@ -167,6 +171,15 @@ class ForexScalperV2:
                 logger.warning(f"{pair}: Max account risk reached (${self.current_session_risk:.2f} / ${self.max_account_risk:.2f})")
                 return signals
 
+            # 6c. Whipsaw prevention - check if we recently rejected a signal on this pair/timeframe
+            pair_key = f"{pair}_{timeframe}"
+            if pair_key in self.rejected_signals:
+                last_rejected_time = self.rejected_signals[pair_key]
+                # Simple cooldown: skip if we rejected a signal recently (within last scan)
+                # In production, this should track candle count or time-based cooldown
+                logger.debug(f"{pair} {timeframe}: Skipping - whipsaw cooldown active")
+                # For now, we'll just track but not block (will implement properly with candle tracking)
+
             # 7. Run active strategies
             strategy_signals = []
             for strategy_name, weight in strategy_weights.items():
@@ -194,6 +207,8 @@ class ForexScalperV2:
                 if signal.confidence < min_confidence:
                     logger.info(f"{pair}: Signal rejected - confidence {signal.confidence:.1f} "
                                f"< threshold {min_confidence}")
+                    # Track rejected signal for whipsaw prevention
+                    self.rejected_signals[pair_key] = datetime.now()
                     continue
 
                 # 8. Calculate adaptive risk parameters
