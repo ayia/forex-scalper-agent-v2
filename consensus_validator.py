@@ -442,53 +442,78 @@ class ConsensusValidator:
     
     def validate_sentiment(
         self,
-        sentiment_score: float,
+        sentiment_data,  # Can be float or Dict from SentimentAnalyzer
         signal_direction: str
     ) -> Dict:
         """
         Validate signal against market sentiment.
         Contrarian approach: fade extreme retail sentiment.
+
+        Args:
+            sentiment_data: Either a float (-100 to +100) or Dict from SentimentAnalyzer
+            signal_direction: 'BUY' or 'SELL'
         """
         try:
-            # Sentiment score expected: -1 (bearish) to +1 (bullish)
-            # Contrarian logic: extreme retail bullish = fade (sell)
-            
+            # Handle both old float format and new Dict format
+            if isinstance(sentiment_data, dict):
+                # New format from SentimentAnalyzer
+                retail_sentiment = sentiment_data.get('retail_sentiment', 0) / 100  # Normalize to -1 to +1
+                contrarian_signal = sentiment_data.get('contrarian_signal', 'NEUTRAL')
+                sentiment_strength = sentiment_data.get('strength', 'neutral')
+            else:
+                # Old format: single float
+                retail_sentiment = float(sentiment_data) if sentiment_data else 0
+                contrarian_signal = 'NEUTRAL'
+                sentiment_strength = 'neutral'
+
             score = 50
             sentiment_alignment = 'NEUTRAL'
-            
+
             if signal_direction == 'BUY':
-                if sentiment_score < -0.5:  # Retail very bearish
-                    score = 80  # Contrarian bullish
+                if retail_sentiment < -0.5:  # Retail very bearish
+                    score = 80  # Contrarian bullish - excellent!
                     sentiment_alignment = 'CONTRARIAN_BULLISH'
-                elif sentiment_score < 0:
+                elif retail_sentiment < -0.2:
                     score = 65
                     sentiment_alignment = 'MILDLY_CONTRARIAN'
-                elif sentiment_score > 0.5:  # Retail very bullish
-                    score = 30  # Against crowd could be risky
+                elif retail_sentiment > 0.5:  # Retail very bullish
+                    score = 30  # Following crowd at top - dangerous
                     sentiment_alignment = 'CROWD_FOLLOWING'
+                elif retail_sentiment > 0.2:
+                    score = 40
+                    sentiment_alignment = 'SLIGHTLY_CROWDED'
                 else:
                     score = 50
-                    
+
             else:  # SELL
-                if sentiment_score > 0.5:  # Retail very bullish
-                    score = 80  # Contrarian bearish
+                if retail_sentiment > 0.5:  # Retail very bullish
+                    score = 80  # Contrarian bearish - excellent!
                     sentiment_alignment = 'CONTRARIAN_BEARISH'
-                elif sentiment_score > 0:
+                elif retail_sentiment > 0.2:
                     score = 65
                     sentiment_alignment = 'MILDLY_CONTRARIAN'
-                elif sentiment_score < -0.5:  # Retail very bearish
-                    score = 30
+                elif retail_sentiment < -0.5:  # Retail very bearish
+                    score = 30  # Following crowd at bottom - dangerous
                     sentiment_alignment = 'CROWD_FOLLOWING'
+                elif retail_sentiment < -0.2:
+                    score = 40
+                    sentiment_alignment = 'SLIGHTLY_CROWDED'
                 else:
                     score = 50
-            
+
+            # Bonus if contrarian signal matches our direction
+            if contrarian_signal == signal_direction:
+                score = min(100, score + 10)
+
             return {
-                'sentiment_score': round(sentiment_score, 3),
+                'retail_sentiment': round(retail_sentiment, 3),
+                'sentiment_strength': sentiment_strength,
                 'alignment': sentiment_alignment,
-                'interpretation': self._interpret_sentiment(sentiment_score),
+                'contrarian_signal': contrarian_signal,
+                'interpretation': self._interpret_sentiment(retail_sentiment),
                 'score': score
             }
-            
+
         except Exception as e:
             logger.error(f"Sentiment validation error: {e}")
             return {'score': 50, 'error': str(e)}

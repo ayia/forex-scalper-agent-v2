@@ -46,6 +46,7 @@ from adaptive_risk_manager import get_adaptive_risk
 from adaptive_strategy_selector import get_active_strategies, StrategySelector
 from correlation_manager import check_pair_correlation, CorrelationManager
 from position_manager import PositionManager
+from news_filter import NewsFilter, should_trade_news, get_news_risk_adjustment
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,9 @@ class ForexScalperV2:
 
         # Position Manager (for trailing stops, breakeven, partial TP)
         self.position_manager = PositionManager(data_fetcher=self.data_fetcher)
+
+        # News Filter (block trades around high-impact news)
+        self.news_filter = NewsFilter()
 
         # Whipsaw prevention tracking
         self.rejected_signals = {}  # Track rejected signals: {pair: {timeframe: timestamp}}
@@ -161,14 +165,25 @@ class ForexScalperV2:
                 logger.info(f"{pair}: No strategies active for regime {regime}")
                 return signals
 
-            # 5. Get sentiment
-            sentiment = self.sentiment_analyzer.analyze(pair)
+            # 5. Get sentiment (now with price data for real analysis)
+            sentiment = self.sentiment_analyzer.analyze(pair, data)
 
             # 6. Check correlation risk
             corr_check = check_pair_correlation(self.active_pairs, pair)
             if not corr_check['allow_trade']:
                 logger.info(f"{pair}: Correlation limit reached ({corr_check['reason']})")
                 return signals
+
+            # 6a. NEWS FILTER - Check for upcoming high-impact news
+            can_trade_news, news_reason, blocking_event = self.news_filter.should_trade(pair)
+            if not can_trade_news:
+                logger.warning(f"{pair}: ⚠️ NEWS FILTER - {news_reason}")
+                return signals
+
+            # Get news-based risk adjustment
+            news_risk_multiplier = self.news_filter.get_risk_adjustment(pair)
+            if news_risk_multiplier < 1.0:
+                logger.info(f"{pair}: News approaching - risk reduced to {news_risk_multiplier:.0%}")
 
             # 6b. Check max account risk
             if self.current_session_risk >= self.max_account_risk:
@@ -237,6 +252,20 @@ class ForexScalperV2:
                 # Apply correlation adjustment
                 risk_params['position_size'] *= correlation_adj
 
+                # Apply news risk adjustment
+                risk_params['position_size'] *= news_risk_multiplier
+                risk_params['risk_amount'] *= news_risk_multiplier
+
+                # Apply news-based stop loss widening if needed
+                news_sl_adjustment = self.news_filter.get_stop_adjustment(pair)
+                if news_sl_adjustment > 1.0:
+                    atr_adjustment = (news_sl_adjustment - 1.0) * atr
+                    if signal.direction == 'BUY':
+                        risk_params['stop_loss'] -= atr_adjustment
+                    else:
+                        risk_params['stop_loss'] += atr_adjustment
+                    logger.info(f"{pair}: SL widened by {(news_sl_adjustment-1)*100:.0f}% due to upcoming news")
+
                 # Check if adding this trade would exceed max risk
                 new_total_risk = self.current_session_risk + risk_params['risk_amount']
                 if new_total_risk > self.max_account_risk:
@@ -264,7 +293,11 @@ class ForexScalperV2:
                     'risk_amount': risk_params['risk_amount'],
                     'atr': atr,
                     'spread': self.data_fetcher.get_spread(pair),
-                    'sentiment': sentiment['score']
+                    'sentiment': sentiment['score'],
+                    'sentiment_strength': sentiment.get('strength', 'neutral'),
+                    'retail_sentiment': sentiment.get('retail_sentiment', 0),
+                    'contrarian_signal': sentiment.get('contrarian_signal', 'NEUTRAL'),
+                    'news_risk_multiplier': news_risk_multiplier
                 }
 
                 signals.append(final_signal)
@@ -303,6 +336,20 @@ class ForexScalperV2:
         logger.info("=" * 60)
         logger.info("Starting Forex Scalper Agent V2 Scan")
         logger.info("=" * 60)
+
+        # 0. Display upcoming news events
+        news_summary = self.news_filter.get_news_summary()
+        if news_summary['total_events'] > 0:
+            logger.info(f"📰 NEWS ALERT: {news_summary['critical']} critical, "
+                       f"{news_summary['high']} high, {news_summary['medium']} medium impact events upcoming")
+            if news_summary['next_critical']:
+                event = news_summary['next_critical']
+                logger.warning(f"⚠️ CRITICAL: {event.currency} {event.event_name} at {event.timestamp.strftime('%H:%M')} UTC")
+            if news_summary['next_high']:
+                event = news_summary['next_high']
+                logger.info(f"📊 HIGH: {event.currency} {event.event_name} at {event.timestamp.strftime('%H:%M')} UTC")
+        else:
+            logger.info("📰 No significant news events in next 24 hours")
 
         # 1. Update all open positions (trailing stops, breakeven, partial TP)
         logger.info("Updating open positions...")
