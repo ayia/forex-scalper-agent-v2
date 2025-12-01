@@ -54,9 +54,23 @@ class ForexScalperV2:
     Version 2 du scanner avec système adaptatif complet
     """
 
-    def __init__(self):
-        """Initialize all components including adaptive modules."""
+    def __init__(self, account_balance: float = 10000.0, max_risk_percent: float = 2.0):
+        """Initialize all components including adaptive modules.
+
+        Args:
+            account_balance: Trading account balance in USD (default: 10,000)
+            max_risk_percent: Maximum risk per session as % of account (default: 2%)
+        """
         logger.info("Initializing Forex Scalper Agent V2...")
+
+        # Account and risk parameters
+        self.account_balance = account_balance
+        self.max_risk_percent = max_risk_percent
+        self.max_account_risk = account_balance * (max_risk_percent / 100.0)
+        self.current_session_risk = 0.0  # Track cumulative risk in current session
+
+        logger.info(f"Account Balance: ${account_balance:,.2f}")
+        logger.info(f"Max Risk Per Session: {max_risk_percent}% (${self.max_account_risk:,.2f})")
 
         # Core components
         self.data_fetcher = DataFetcher()
@@ -108,6 +122,17 @@ class ForexScalperV2:
             if data is None or data.empty or len(data) < 50:
                 return signals
 
+            # 1b. Validate required columns (case-insensitive check)
+            required_columns = {'open', 'high', 'low', 'close', 'volume'}
+            data_columns_lower = {col.lower() for col in data.columns}
+            missing_columns = required_columns - data_columns_lower
+            if missing_columns:
+                logger.error(f"{pair} {timeframe}: Missing required columns: {missing_columns}")
+                return signals
+
+            # Keep columns in lowercase for consistency with existing modules
+            data.columns = [col.lower() if col.lower() in required_columns else col for col in data.columns]
+
             # 2. Detect market regime
             regime_info = get_regime(data, pair)
             regime = regime_info['regime']
@@ -135,6 +160,11 @@ class ForexScalperV2:
             corr_check = check_pair_correlation(self.active_pairs, pair)
             if not corr_check['allow_trade']:
                 logger.info(f"{pair}: Correlation limit reached ({corr_check['reason']})")
+                return signals
+
+            # 6b. Check max account risk
+            if self.current_session_risk >= self.max_account_risk:
+                logger.warning(f"{pair}: Max account risk reached (${self.current_session_risk:.2f} / ${self.max_account_risk:.2f})")
                 return signals
 
             # 7. Run active strategies
@@ -167,7 +197,7 @@ class ForexScalperV2:
                     continue
 
                 # 8. Calculate adaptive risk parameters
-                current_price = data['Close'].iloc[-1]
+                current_price = data['close'].iloc[-1]
                 atr = self.risk_calculator.calculate_atr(data)
 
                 risk_params = get_adaptive_risk(
@@ -176,7 +206,8 @@ class ForexScalperV2:
                     pair=pair,
                     atr=atr,
                     regime=regime_info,
-                    spread=self.data_fetcher.get_spread(pair)
+                    spread=self.data_fetcher.get_spread(pair),
+                    account_balance=self.account_balance  # Pass actual account balance
                 )
 
                 # Get correlation adjustment
@@ -186,6 +217,16 @@ class ForexScalperV2:
 
                 # Apply correlation adjustment
                 risk_params['position_size'] *= correlation_adj
+
+                # Check if adding this trade would exceed max risk
+                new_total_risk = self.current_session_risk + risk_params['risk_amount']
+                if new_total_risk > self.max_account_risk:
+                    logger.warning(f"{pair}: Signal rejected - would exceed max risk "
+                                 f"(${new_total_risk:.2f} > ${self.max_account_risk:.2f})")
+                    continue
+
+                # Update cumulative session risk
+                self.current_session_risk += risk_params['risk_amount']
 
                 # 9. Build final signal
                 final_signal = {
@@ -235,6 +276,9 @@ class ForexScalperV2:
         logger.info("=" * 60)
         logger.info("Starting Forex Scalper Agent V2 Scan")
         logger.info("=" * 60)
+
+        # Reset session risk at start of each scan
+        self.current_session_risk = 0.0
 
         all_signals = []
 
