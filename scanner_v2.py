@@ -45,6 +45,7 @@ from market_regime_detector import get_regime
 from adaptive_risk_manager import get_adaptive_risk
 from adaptive_strategy_selector import get_active_strategies, StrategySelector
 from correlation_manager import check_pair_correlation, CorrelationManager
+from position_manager import PositionManager
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,9 @@ class ForexScalperV2:
         self.strategy_selector = StrategySelector()
         self.correlation_manager = CorrelationManager()
         self.active_pairs = []  # Track currently active/open pairs
+
+        # Position Manager (for trailing stops, breakeven, partial TP)
+        self.position_manager = PositionManager(data_fetcher=self.data_fetcher)
 
         # Whipsaw prevention tracking
         self.rejected_signals = {}  # Track rejected signals: {pair: {timeframe: timestamp}}
@@ -268,10 +272,18 @@ class ForexScalperV2:
                 # 10. Log the signal
                 self.trade_logger.log_signal(final_signal)
 
-                logger.info(f"✓ {pair} {timeframe}: Signal validated - "
+                # 11. Open position in PositionManager
+                position_id = self.position_manager.open_position(final_signal)
+
+                # Add pair to active pairs list for correlation tracking
+                if pair not in self.active_pairs:
+                    self.active_pairs.append(pair)
+
+                logger.info(f"✓ {pair} {timeframe}: Position opened - "
                            f"{signal.direction} @ {signal.entry:.5f}, "
                            f"SL={risk_params['stop_loss']:.5f}, "
-                           f"TP={risk_params['take_profit']:.5f}")
+                           f"TP={risk_params['take_profit']:.5f}, "
+                           f"Position ID: {position_id}")
 
         except Exception as e:
             logger.error(f"Error scanning {pair} {timeframe}: {e}", exc_info=True)
@@ -292,8 +304,29 @@ class ForexScalperV2:
         logger.info("Starting Forex Scalper Agent V2 Scan")
         logger.info("=" * 60)
 
+        # 1. Update all open positions (trailing stops, breakeven, partial TP)
+        logger.info("Updating open positions...")
+        actions = self.position_manager.update_positions()
+
+        if actions:
+            logger.info(f"Position actions: {len(actions)}")
+            for action in actions:
+                logger.info(f"  - {action['action']}: {action.get('position_id', 'N/A')}")
+
+        # Display position statistics
+        stats = self.position_manager.get_statistics()
+        logger.info(f"Position Stats: {stats['open_positions']} open, "
+                   f"Total P&L: ${stats['total_pnl']:.2f} "
+                   f"(Realized: ${stats['realized_pnl']:.2f}, "
+                   f"Unrealized: ${stats['unrealized_pnl']:.2f})")
+
+        # Update active_pairs based on actual open positions
+        open_positions = self.position_manager.get_open_positions()
+        self.active_pairs = [pos.pair for pos in open_positions]
+
         # Reset session risk at start of each scan
-        self.current_session_risk = 0.0
+        # Recalculate from open positions
+        self.current_session_risk = self.position_manager.get_total_risk()
 
         all_signals = []
 
@@ -315,6 +348,12 @@ class ForexScalperV2:
 
         logger.info("=" * 60)
         logger.info(f"Scan complete: {len(all_signals)} signals generated")
+
+        # Final position stats after scan
+        final_stats = self.position_manager.get_statistics()
+        logger.info(f"Final Stats: {final_stats['open_positions']} positions open, "
+                   f"Total Risk: ${final_stats['total_risk']:.2f}, "
+                   f"Total P&L: ${final_stats['total_pnl']:.2f}")
         logger.info("=" * 60)
 
         return all_signals
