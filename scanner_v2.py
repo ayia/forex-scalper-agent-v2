@@ -47,6 +47,7 @@ from adaptive_strategy_selector import get_active_strategies, StrategySelector
 from correlation_manager import check_pair_correlation, CorrelationManager
 from position_manager import PositionManager
 from news_filter import NewsFilter, should_trade_news, get_news_risk_adjustment
+from mtf_analyzer import MTFAnalyzer, get_mtf_analysis
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,9 @@ class ForexScalperV2:
 
         # News Filter (block trades around high-impact news)
         self.news_filter = NewsFilter()
+
+        # MTF Analyzer (Top-Down Multi-Timeframe Analysis)
+        self.mtf_analyzer = MTFAnalyzer()
 
         # Whipsaw prevention tracking
         self.rejected_signals = {}  # Track rejected signals: {pair: {timeframe: timestamp}}
@@ -382,14 +386,40 @@ class ForexScalperV2:
         logger.info(f"Filtered pairs: {len(filtered_pairs)} tradable from {len(self.pairs)} total")
         logger.info(f"Tradable pairs: {', '.join(filtered_pairs)}")
 
-        # 2. Scan each pair
+        # 2. Scan each pair with FULL MTF Analysis (H4 -> H1 -> M15 -> M5 -> M1)
         for pair in filtered_pairs:
             logger.info(f"\n--- Scanning {pair} ---")
 
-            # Scan on primary scalping timeframes
-            primary_timeframes = ['M15', 'M5']  # Focus on these for scalping
+            # Fetch ALL timeframes for MTF analysis
+            all_timeframes = ['M1', 'M5', 'M15', 'H1', 'H4']
+            mtf_data = self.data_fetcher.fetch_multi_timeframe(pair, all_timeframes)
 
-            for timeframe in primary_timeframes:
+            if not mtf_data or len(mtf_data) < 4:
+                logger.warning(f"{pair}: Insufficient MTF data - skipping")
+                continue
+
+            # Perform Top-Down MTF Analysis
+            mtf_analysis = self.mtf_analyzer.analyze(pair, mtf_data)
+
+            if mtf_analysis:
+                # Log MTF analysis results
+                logger.info(f"{pair} MTF: HTF_Bias={mtf_analysis.htf_bias}, "
+                           f"H4={mtf_analysis.h4_trend}, H1={mtf_analysis.h1_trend}, "
+                           f"Confluence={mtf_analysis.confluence_score:.1f}%")
+
+                # Get trade direction from MTF analysis
+                mtf_direction = self.mtf_analyzer.get_trade_direction(mtf_analysis)
+
+                if mtf_direction:
+                    logger.info(f"{pair}: MTF Signal = {mtf_direction}, "
+                               f"Entry={mtf_analysis.entry_price:.5f}, "
+                               f"SL={mtf_analysis.optimal_sl:.5f}, "
+                               f"TP={mtf_analysis.optimal_tp:.5f}")
+
+            # Still run individual strategy scans on scalping timeframes
+            # but now with HTF context from MTF analysis
+            scalping_timeframes = ['M15', 'M5']
+            for timeframe in scalping_timeframes:
                 signals = self.scan_pair(pair, timeframe)
                 all_signals.extend(signals)
 
