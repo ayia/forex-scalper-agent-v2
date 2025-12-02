@@ -294,6 +294,37 @@ STRATEGY_PARAMS = {
 | **Volume Metrics** | Volume Ratio, RVI, VPT, A/D Line, OBV |
 | **Best For** | Volatile markets with breakouts |
 
+### 4. Enhanced Scalping (NEW in v2.2.0)
+Advanced multi-confirmation scalping system inspired by DIY Custom Strategy Builder [ZP].
+
+| Parameter | Value |
+|-----------|-------|
+| **Leading Indicator** | Range Filter (DW) / WAE / QQE (auto-selected) |
+| **Confirmations** | EMA, RSI, Chandelier Exit, Range Filter |
+| **Confirmation Rate** | Minimum 70% alignment required |
+| **Volume Confirmation** | PVSRA climax candles |
+| **SL Placement** | Chandelier Exit + Supply/Demand zones |
+| **TP Placement** | ATR-based + nearest Supply/Demand zone |
+| **Session Filtering** | Pairs prioritized by trading session |
+| **Max SL** | 15 pips (scalping limit) |
+| **Best For** | Intraday scalping with high probability setups |
+
+**Leading Indicator Selection:**
+| Session | Regime | Leading Indicator |
+|---------|--------|-------------------|
+| London/NY Overlap | Any | WAE (momentum) |
+| London/New York | Trending | Range Filter |
+| Tokyo | Any | QQE (lower volatility) |
+| Off-hours | Ranging | QQE |
+
+**Pair-Session Scoring:**
+| Condition | Score |
+|-----------|-------|
+| Optimal pair during overlap | 100 |
+| Optimal pair in active session | 70-85 |
+| Non-optimal pair during overlap | 60 |
+| Non-optimal pair in active session | 30-50 |
+
 ## 🎯 Market Regime Detection
 
 The system detects 6 market regimes and adapts strategies accordingly:
@@ -570,6 +601,38 @@ This software is for educational purposes only. Trading forex involves substanti
 
 ## 📝 Changelog
 
+### Version 2.2.0 (December 2025) - Enhanced Scalping System
+*Inspired by DIY Custom Strategy Builder [ZP] analysis*
+
+#### New Advanced Indicators Module (`advanced_indicators.py`)
+- **Range Filter (DW)**: Adaptive noise filtering with Donchian Width - excellent for scalping entries
+- **Chandelier Exit**: ATR-based trailing stop placement for optimal SL levels
+- **Waddah Attar Explosion (WAE)**: Momentum/volatility detection for explosive move identification
+- **Choppiness Index**: Range vs trend detection - automatically skips choppy markets
+- **PVSRA (Price Volume Spread Analysis)**: Smart money detection via climax/rising volume candles
+- **Supply/Demand Zone Detection**: Intelligent SL/TP placement based on key levels
+- **QQE Mod**: Enhanced RSI with dynamic bands for precise entries
+- **Session Manager**: Automatic trading session detection with DST handling (Tokyo, London, New York, Sydney)
+
+#### Enhanced Scalping Strategy (`enhanced_scalping_strategy.py`)
+- **Leading + Confirmation System**: Primary signal generator with multiple confirmation filters
+- **Signal Expiry**: Wait up to N candles for confirmations to align (prevents premature entries)
+- **Adaptive Leading Selector**: Automatically selects best indicator based on regime and session
+- **Session-Aware Trading**: Prioritizes optimal pairs for each trading session
+- **Pair-Session Scoring**: 0-100 score indicating pair suitability for current session
+
+#### Key Improvements
+- **70% Confirmation Rate Required**: Reduces false signals
+- **Volume Confirmation**: PVSRA climax candles boost confidence
+- **Zone-Based SL/TP**: Uses Supply/Demand zones for intelligent level placement
+- **Volatility-Adjusted Targets**: SL/TP multipliers adapt to session volatility
+- **Maximum 15-pip SL**: Scalping-appropriate stop loss limits
+
+#### Scanner Integration
+- Enhanced strategies automatically loaded in `scanner_v2.py`
+- Three pre-configured strategies: Range Filter, WAE, and QQE as leading indicators
+- 10% confidence boost for enhanced strategy signals
+
 ### Version 2.1.0 (December 2025)
 - **Multi-Source DataFetcher**: yfinance + Alpha Vantage + Twelve Data with automatic fallback
 - **MTF Analyzer**: Complete top-down analysis (H4 -> H1 -> M15 -> M5 -> M1)
@@ -587,5 +650,5 @@ This software is for educational purposes only. Trading forex involves substanti
 ---
 
 **Author**: Forex Scalper Agent V2
-**Version**: 2.1.0
+**Version**: 2.2.0
 **Last Updated**: December 2025

@@ -64,6 +64,16 @@ from position_manager import PositionManager
 from news_filter import NewsFilter, should_trade_news, get_news_risk_adjustment
 from mtf_analyzer import MTFAnalyzer, get_mtf_analysis
 
+# Import enhanced scalping strategy and advanced indicators
+try:
+    from enhanced_scalping_strategy import EnhancedScalpingStrategy, create_enhanced_strategy
+    from advanced_indicators import (
+        SessionManager, ChoppinessIndex, PVSRA, SupplyDemandZones
+    )
+    ENHANCED_STRATEGIES_AVAILABLE = True
+except ImportError:
+    ENHANCED_STRATEGIES_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -103,6 +113,23 @@ class ForexScalperV2:
             'MeanReversion': MeanReversionStrategy(),
             'Breakout': BreakoutStrategy()
         }
+
+        # Enhanced Scalping Strategies (from DIY Custom Strategy Builder analysis)
+        if ENHANCED_STRATEGIES_AVAILABLE:
+            self.enhanced_strategies = {
+                'EnhancedScalping_RF': EnhancedScalpingStrategy(leading_indicator='RANGE_FILTER'),
+                'EnhancedScalping_WAE': EnhancedScalpingStrategy(leading_indicator='WAE'),
+                'EnhancedScalping_QQE': EnhancedScalpingStrategy(leading_indicator='QQE'),
+            }
+            self.session_manager = SessionManager()
+            self.choppiness_filter = ChoppinessIndex(length=14, threshold=61.8)
+            self.pvsra_analyzer = PVSRA(volume_period=10)
+            self.sd_zones = SupplyDemandZones(swing_length=10)
+            logger.info("Enhanced Scalping Strategies loaded successfully")
+        else:
+            self.enhanced_strategies = {}
+            self.session_manager = None
+            logger.warning("Enhanced Scalping Strategies not available")
 
         self.consensus_validator = ConsensusValidator()
 
@@ -234,6 +261,20 @@ class ForexScalperV2:
                     strategy_signals.append(signal)
                     logger.info(f"{pair} {timeframe}: {strategy_name} signal - "
                                f"Direction={signal.direction}, Confidence={signal.confidence:.1f}")
+
+            # 7b. Run Enhanced Scalping Strategies (if available)
+            if ENHANCED_STRATEGIES_AVAILABLE and self.enhanced_strategies:
+                # Select best enhanced strategy based on session and regime
+                enhanced_strategy = create_enhanced_strategy(pair, regime)
+                enhanced_signal = enhanced_strategy.analyze(mtf_data, pair)
+
+                if enhanced_signal:
+                    # Enhanced signals get priority boost
+                    enhanced_signal.confidence = min(100, enhanced_signal.confidence * 1.1)
+                    strategy_signals.append(enhanced_signal)
+                    logger.info(f"{pair} {timeframe}: Enhanced Scalping signal - "
+                               f"Direction={enhanced_signal.direction}, "
+                               f"Confidence={enhanced_signal.confidence:.1f}")
 
             # 6. Validate signals with consensus
             for signal in strategy_signals:
