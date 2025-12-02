@@ -13,12 +13,27 @@ Ce scanner orchestre TOUS les modules du système:
 
 Part of Forex Scalper Agent V2 - Architecture Complète
 """
+import sys
+import logging
+
+# Suppress all logging if --mtf-json flag is present (must be done before imports)
+if '--mtf-json' in sys.argv:
+    logging.disable(logging.CRITICAL)
+    try:
+        from loguru import logger as loguru_logger
+        loguru_logger.disable("")
+    except ImportError:
+        pass
+    import warnings
+    warnings.filterwarnings('ignore')
+    import os
+    sys.stderr = open(os.devnull, 'w')
+
 import time
 import json
 import argparse
 from datetime import datetime
 from typing import Dict, List, Optional
-import logging
 
 # Import de TOUS nos modules existants
 from config import (
@@ -460,6 +475,86 @@ class ForexScalperV2:
         except Exception as e:
             logger.error(f"Fatal error: {e}", exc_info=True)
 
+    def get_mtf_signals_json(self, min_confluence: float = 60.0) -> List[Dict]:
+        """
+        Get MTF signals sorted by confluence (descending) in JSON format.
+
+        Args:
+            min_confluence: Minimum confluence score to include (default: 60%)
+
+        Returns:
+            List of signal dictionaries sorted by confluence
+        """
+        from config import get_pip_value
+
+        all_setups = []
+
+        # Get tradable pairs
+        filtered_pairs = self.universe_filter.get_tradable_universe()
+
+        for pair in filtered_pairs:
+            # Fetch all timeframes
+            mtf_data = self.data_fetcher.fetch_multi_timeframe(
+                pair, ['M1', 'M5', 'M15', 'H1', 'H4']
+            )
+
+            if not mtf_data or len(mtf_data) < 4:
+                continue
+
+            # Run MTF analysis
+            analysis = self.mtf_analyzer.analyze(pair, mtf_data)
+
+            if analysis and analysis.confluence_score >= min_confluence:
+                direction = self.mtf_analyzer.get_trade_direction(analysis)
+
+                if direction:
+                    # Get sentiment
+                    m15_data = None
+                    for key in ['M15', '15m']:
+                        if key in mtf_data and mtf_data[key] is not None:
+                            df = mtf_data[key]
+                            if not df.empty:
+                                m15_data = df
+                                break
+
+                    sent = self.sentiment_analyzer.analyze(pair, m15_data) if m15_data is not None else {}
+
+                    # Calculate metrics
+                    pip_val = get_pip_value(pair)
+                    risk = abs(analysis.entry_price - analysis.optimal_sl)
+                    reward = abs(analysis.optimal_tp - analysis.entry_price)
+                    rr_ratio = round(reward / risk, 2) if risk > 0 else 0
+
+                    sl_pips = round(abs(analysis.entry_price - analysis.optimal_sl) / pip_val, 1)
+                    tp_pips = round(abs(analysis.optimal_tp - analysis.entry_price) / pip_val, 1)
+
+                    all_setups.append({
+                        'pair': pair,
+                        'direction': direction,
+                        'confluence': round(analysis.confluence_score, 1),
+                        'entry_price': round(analysis.entry_price, 5),
+                        'stop_loss': round(analysis.optimal_sl, 5),
+                        'take_profit': round(analysis.optimal_tp, 5),
+                        'sl_pips': sl_pips,
+                        'tp_pips': tp_pips,
+                        'risk_reward': f"1:{rr_ratio}",
+                        'h4_trend': analysis.h4_trend,
+                        'h1_trend': analysis.h1_trend,
+                        'm15_signal': analysis.m15_signal,
+                        'm5_entry': analysis.m5_entry,
+                        'sentiment': {
+                            'retail': sent.get('retail_sentiment', 0),
+                            'contrarian_signal': sent.get('contrarian_signal', 'NEUTRAL'),
+                            'strength': sent.get('strength', 'neutral')
+                        },
+                        'timestamp': analysis.timestamp
+                    })
+
+        # Sort by confluence descending
+        all_setups.sort(key=lambda x: x['confluence'], reverse=True)
+
+        return all_setups
+
 
 def main():
     """Main entry point."""
@@ -482,11 +577,31 @@ def main():
         default=300,
         help='Interval between scans in continuous mode (seconds)'
     )
+    parser.add_argument(
+        '--mtf-json',
+        action='store_true',
+        help='Output MTF signals as JSON sorted by confluence (descending)'
+    )
+    parser.add_argument(
+        '--min-confluence',
+        type=float,
+        default=60.0,
+        help='Minimum confluence score for --mtf-json (default: 60)'
+    )
 
     args = parser.parse_args()
 
-    # Initialize and run scanner
+    # MTF JSON mode - output signals and exit
+    if args.mtf_json:
+        scanner = ForexScalperV2()
+        signals = scanner.get_mtf_signals_json(min_confluence=args.min_confluence)
+        print(json.dumps(signals, indent=2))
+        return
+
+    # Initialize scanner for normal mode
     scanner = ForexScalperV2()
+
+    # Normal scan mode
     signals = scanner.run(once=args.once, continuous_interval=args.interval)
 
     # Output results

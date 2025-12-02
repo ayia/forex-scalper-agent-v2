@@ -68,14 +68,60 @@ for sig in signals:
 
 ### Command Line
 ```bash
-# Single scan with JSON output
+# Single scan with full logging
+python scanner_v2.py --once
+
+# MTF signals as clean JSON (sorted by confluence descending)
+python scanner_v2.py --mtf-json
+
+# MTF signals with minimum 80% confluence
+python scanner_v2.py --mtf-json --min-confluence 80
+
+# Continuous scanning (every 5 minutes)
+python scanner_v2.py --interval 300
+
+# Traditional JSON output
 python scanner_v2.py --once --json
+```
 
-# Continuous scanning
-python scanner_v2.py
+### CLI Parameters
 
-# Run enhanced features demo
-python examples/enhanced_features_demo.py
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--once` | Run a single scan and exit | `False` |
+| `--json` | Output traditional signals in JSON format | `False` |
+| `--mtf-json` | Output MTF signals as clean JSON (no logs) sorted by confluence | `False` |
+| `--min-confluence` | Minimum confluence score for `--mtf-json` | `60` |
+| `--interval` | Seconds between scans in continuous mode | `300` |
+
+### MTF JSON Output Example
+```bash
+python scanner_v2.py --mtf-json --min-confluence 80
+```
+```json
+[
+  {
+    "pair": "USDCAD",
+    "direction": "SELL",
+    "confluence": 95,
+    "entry_price": 1.39750,
+    "stop_loss": 1.39800,
+    "take_profit": 1.39625,
+    "sl_pips": 5.0,
+    "tp_pips": 12.5,
+    "risk_reward": "1:2.5",
+    "h4_trend": "BEARISH",
+    "h1_trend": "BEARISH",
+    "m15_signal": "SELL_CONTINUATION",
+    "m5_entry": "ENTRY_NOW",
+    "sentiment": {
+      "retail": -37.1,
+      "contrarian_signal": "NEUTRAL",
+      "strength": "neutral"
+    },
+    "timestamp": "2025-12-02T20:41:01.311437"
+  }
+]
 ```
 
 ## 📂 Project Structure
@@ -125,6 +171,56 @@ forex-scalper-agent-v2/
 └── 📄 Documentation
     ├── README.md                  # This file
     └── ADAPTIVE_SYSTEM_README.md  # Adaptive system details
+```
+
+## 📡 Multi-Source Data Fetcher
+
+The system supports multiple **100% FREE** data sources with automatic fallback:
+
+| Source | Rate Limit | Delay | API Key Required |
+|--------|------------|-------|------------------|
+| **yfinance** | Unlimited | 15-20 min | No (default) |
+| **Alpha Vantage** | 5 req/min, 500/day | Real-time | Yes (free) |
+| **Twelve Data** | 800 req/day | Real-time | Yes (free) |
+
+### Configuration
+
+Set API keys via environment variables for real-time data:
+```bash
+# Windows
+set ALPHA_VANTAGE_API_KEY=your_free_key
+set TWELVE_DATA_API_KEY=your_free_key
+
+# Linux/Mac
+export ALPHA_VANTAGE_API_KEY=your_free_key
+export TWELVE_DATA_API_KEY=your_free_key
+```
+
+Get free API keys:
+- Alpha Vantage: https://www.alphavantage.co/support/#api-key
+- Twelve Data: https://twelvedata.com/pricing (free tier)
+
+### Features
+- **Automatic Fallback**: If one source fails, tries the next
+- **Smart Caching**: 60-second cache to reduce API calls
+- **Rate Limiting**: Respects each source's limits
+- **Statistics Tracking**: Monitor success/failure rates per source
+
+```python
+from data_fetcher import DataFetcher
+
+# Uses yfinance by default (no API key needed)
+fetcher = DataFetcher()
+
+# Or with API keys for real-time data
+fetcher = DataFetcher(
+    alpha_vantage_key="your_key",
+    twelve_data_key="your_key"
+)
+
+# Get statistics
+stats = fetcher.get_statistics()
+print(f"Success rate: {stats['success_rate']:.1f}%")
 ```
 
 ## ⚙️ Configuration
@@ -278,6 +374,60 @@ position_size = adjusted_risk / (SL_distance × pip_value)
 
 ## 🔧 Advanced Features
 
+### Sentiment Analysis (Contrarian Approach)
+
+The system uses a **contrarian trading approach** - fading extreme retail sentiment:
+
+```python
+from sentiment_analyzer import SentimentAnalyzer
+
+analyzer = SentimentAnalyzer()
+result = analyzer.analyze('EURUSD', price_data)
+
+print(f"Retail Sentiment: {result['retail_sentiment']}")  # -100 to +100
+print(f"Contrarian Signal: {result['contrarian_signal']}")  # BUY, SELL, NEUTRAL
+print(f"Institutional Bias: {result['institutional_bias']}")
+```
+
+| Retail Sentiment | Contrarian Action |
+|------------------|-------------------|
+| **> +70** (Extreme Bullish) | SELL signal strength boost |
+| **< -70** (Extreme Bearish) | BUY signal strength boost |
+| **-30 to +30** (Neutral) | No adjustment |
+
+**Components analyzed:**
+- Technical Sentiment (RSI/Stochastic): 30%
+- Volatility Sentiment (ATR ratio): 20%
+- Momentum Sentiment (ROC/EMA): 30%
+- Position Estimation: 20%
+
+### News Filter (Economic Calendar)
+
+Automatically blocks trading around high-impact news events:
+
+```python
+from news_filter import NewsFilter
+
+news = NewsFilter()
+can_trade, reason, event = news.should_trade('EURUSD')
+
+if not can_trade:
+    print(f"Trading blocked: {reason}")
+    print(f"Event: {event.event_name} at {event.timestamp}")
+```
+
+| Event Impact | Buffer Before | Buffer After |
+|--------------|---------------|--------------|
+| **CRITICAL** (NFP, FOMC, ECB) | 60 minutes | 30 minutes |
+| **HIGH** (CPI, GDP, Employment) | 30 minutes | 15 minutes |
+| **MEDIUM** (PMI, Retail Sales) | 15 minutes | 10 minutes |
+
+**Risk adjustment near news:**
+```python
+risk_multiplier = news.get_risk_adjustment('EURUSD')
+# Returns 0.5 to 1.0 based on proximity to news events
+```
+
 ### Order Flow Analysis
 ```python
 from order_flow_analyzer import OrderFlowAnalyzer
@@ -418,6 +568,24 @@ This software is for educational purposes only. Trading forex involves substanti
 
 ---
 
+## 📝 Changelog
+
+### Version 2.1.0 (December 2025)
+- **Multi-Source DataFetcher**: yfinance + Alpha Vantage + Twelve Data with automatic fallback
+- **MTF Analyzer**: Complete top-down analysis (H4 -> H1 -> M15 -> M5 -> M1)
+- **Sentiment Analyzer**: Contrarian approach with retail sentiment estimation
+- **News Filter**: Economic calendar integration with impact-based buffers
+- **CLI Improvements**: New `--mtf-json` and `--min-confluence` parameters
+- **Position Manager**: Trailing stops, breakeven, partial take-profit
+
+### Version 2.0.0 (November 2025)
+- Initial release with adaptive strategy selection
+- Market regime detection (6 regimes)
+- Consensus validation system
+- Order flow analysis
+
+---
+
 **Author**: Forex Scalper Agent V2
-**Version**: 2.0.0
+**Version**: 2.1.0
 **Last Updated**: December 2025
