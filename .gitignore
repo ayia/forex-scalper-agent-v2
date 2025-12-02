@@ -46,6 +46,9 @@ logs/
 .env.local
 *.env
 
+# API Keys (IMPORTANT - ne jamais commit!)
+#api_keys.py
+
 # Trading specific
 *.db
 *.sqlite

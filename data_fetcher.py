@@ -2,9 +2,17 @@
 Data Fetcher Module - Multi-Source Forex Data (100% Gratuit)
 =============================================================
 Sources de données gratuites avec fallback automatique:
-1. yfinance (par défaut) - Illimité, délai 15-20 min
-2. Alpha Vantage - 5 req/min, temps réel (API key gratuite)
-3. Twelve Data - 800 req/jour, temps réel (API key gratuite)
+
+PRIORITÉ POUR SCALPING (délai minimal):
+1. Twelve Data - 800 req/jour, ~1 min délai (API key gratuite)
+2. Finnhub - 60 req/min, temps réel (API key gratuite)
+3. Alpha Vantage - 5 req/min, temps réel (API key gratuite)
+4. yfinance - Illimité, délai 15-20 min (FALLBACK UNIQUEMENT)
+
+Configuration des API keys (GRATUIT - sans carte bancaire):
+- TWELVE_DATA_API_KEY: https://twelvedata.com (recommandé)
+- FINNHUB_API_KEY: https://finnhub.io (excellent backup)
+- ALPHA_VANTAGE_API_KEY: https://alphavantage.co
 
 Le système bascule automatiquement entre les sources si une échoue.
 """
@@ -20,6 +28,16 @@ import time
 import os
 
 from config import TIMEFRAMES, ALL_PAIRS
+
+# Try to import API keys from local config (recommended)
+try:
+    from api_keys import get_twelve_data_key, get_finnhub_key, get_alpha_vantage_key
+    _API_KEYS_FROM_FILE = True
+except ImportError:
+    _API_KEYS_FROM_FILE = False
+    def get_twelve_data_key(): return ""
+    def get_finnhub_key(): return ""
+    def get_alpha_vantage_key(): return ""
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +123,8 @@ class AlphaVantageSource(DataSource):
 
     def __init__(self, api_key: str = None):
         self.name = "alpha_vantage"
-        self.api_key = api_key or os.environ.get("ALPHA_VANTAGE_API_KEY", "")
+        # Priority: parameter > api_keys.py > environment variable
+        self.api_key = api_key or get_alpha_vantage_key() or os.environ.get("ALPHA_VANTAGE_API_KEY", "")
         self.base_url = "https://www.alphavantage.co/query"
         self.last_request = 0
         self.min_interval = 12.0  # 5 req/min = 12 sec entre requêtes
@@ -211,16 +230,19 @@ class AlphaVantageSource(DataSource):
 
 
 class TwelveDataSource(DataSource):
-    """Twelve Data source - Gratuit avec API key (800 req/jour)."""
+    """Twelve Data source - Gratuit avec API key (800 req/jour, ~1 min délai)."""
 
     def __init__(self, api_key: str = None):
         self.name = "twelve_data"
-        self.api_key = api_key or os.environ.get("TWELVE_DATA_API_KEY", "")
+        # Priority: parameter > api_keys.py > environment variable
+        self.api_key = api_key or get_twelve_data_key() or os.environ.get("TWELVE_DATA_API_KEY", "")
         self.base_url = "https://api.twelvedata.com/time_series"
         self.last_request = 0
-        self.min_interval = 1.0  # Pas de limite stricte par minute
+        self.min_interval = 0.5  # 8 credits/min = ~7.5 sec, mais on peut aller plus vite
         self.requests_today = 0
         self.max_daily = 800
+        self.requests_per_minute = 0
+        self.minute_start = time.time()
 
     def get_name(self) -> str:
         return self.name
@@ -305,58 +327,218 @@ class TwelveDataSource(DataSource):
             return None
 
 
+class FinnhubSource(DataSource):
+    """Finnhub data source - Gratuit avec API key (60 req/min, temps réel)."""
+
+    def __init__(self, api_key: str = None):
+        self.name = "finnhub"
+        # Priority: parameter > api_keys.py > environment variable
+        self.api_key = api_key or get_finnhub_key() or os.environ.get("FINNHUB_API_KEY", "")
+        self.base_url = "https://finnhub.io/api/v1/forex/candle"
+        self.last_request = 0
+        self.min_interval = 1.0  # 60 req/min = 1 sec entre requêtes
+        self.requests_per_minute = 0
+        self.minute_start = time.time()
+
+    def get_name(self) -> str:
+        return self.name
+
+    def is_available(self) -> bool:
+        return bool(self.api_key)
+
+    def _get_resolution(self, timeframe: str) -> str:
+        """Convert timeframe to Finnhub resolution."""
+        resolution_map = {
+            "M1": "1", "M5": "5", "M15": "15",
+            "M30": "30", "H1": "60", "H4": "240", "D": "D"
+        }
+        return resolution_map.get(timeframe, "15")
+
+    def _get_symbol(self, pair: str) -> str:
+        """Convert pair to Finnhub format (OANDA broker)."""
+        # Finnhub forex uses format: OANDA:EUR_USD
+        return f"OANDA:{pair[:3]}_{pair[3:]}"
+
+    def _rate_limit(self):
+        """Ensure we don't exceed 60 requests per minute."""
+        current_time = time.time()
+
+        # Reset counter every minute
+        if current_time - self.minute_start >= 60:
+            self.requests_per_minute = 0
+            self.minute_start = current_time
+
+        # If we've hit the limit, wait
+        if self.requests_per_minute >= 55:  # Leave some buffer
+            wait_time = 60 - (current_time - self.minute_start)
+            if wait_time > 0:
+                logger.debug(f"[finnhub] Rate limit reached, waiting {wait_time:.1f}s")
+                time.sleep(wait_time)
+                self.requests_per_minute = 0
+                self.minute_start = time.time()
+
+        # Basic interval between requests
+        elapsed = current_time - self.last_request
+        if elapsed < self.min_interval:
+            time.sleep(self.min_interval - elapsed)
+
+    def fetch_ohlcv(self, pair: str, timeframe: str, bars: int = 100) -> Optional[pd.DataFrame]:
+        """Fetch OHLCV data from Finnhub."""
+        if not self.is_available():
+            logger.warning(f"[finnhub] Not available (no API key)")
+            return None
+
+        try:
+            self._rate_limit()
+
+            symbol = self._get_symbol(pair)
+            resolution = self._get_resolution(timeframe)
+
+            # Calculate time range based on timeframe and bars needed
+            now = int(time.time())
+            timeframe_seconds = {
+                "M1": 60, "M5": 300, "M15": 900,
+                "M30": 1800, "H1": 3600, "H4": 14400, "D": 86400
+            }
+            seconds_per_bar = timeframe_seconds.get(timeframe, 900)
+            from_time = now - (bars * seconds_per_bar * 2)  # Extra buffer
+
+            params = {
+                "symbol": symbol,
+                "resolution": resolution,
+                "from": from_time,
+                "to": now,
+                "token": self.api_key
+            }
+
+            response = requests.get(self.base_url, params=params, timeout=10)
+            self.last_request = time.time()
+            self.requests_per_minute += 1
+
+            if response.status_code != 200:
+                logger.error(f"[finnhub] HTTP {response.status_code}")
+                return None
+
+            data = response.json()
+
+            # Check for errors
+            if data.get("s") == "no_data":
+                logger.warning(f"[finnhub] No data for {pair} {timeframe}")
+                return None
+
+            if "c" not in data or not data["c"]:
+                logger.warning(f"[finnhub] Empty response for {pair}")
+                return None
+
+            # Convert to DataFrame
+            df = pd.DataFrame({
+                'datetime': pd.to_datetime(data['t'], unit='s'),
+                'open': data['o'],
+                'high': data['h'],
+                'low': data['l'],
+                'close': data['c'],
+                'volume': data.get('v', [0] * len(data['c']))
+            })
+
+            df.set_index('datetime', inplace=True)
+            df.sort_index(inplace=True)
+            df = df.tail(bars)
+
+            logger.debug(f"[finnhub] Fetched {len(df)} bars for {pair} {timeframe}")
+            return df
+
+        except Exception as e:
+            logger.error(f"[finnhub] Error fetching {pair}: {e}")
+            return None
+
+
 class DataFetcher:
     """
     Multi-Source Data Fetcher avec fallback automatique.
 
-    Ordre de priorité:
-    1. yfinance (toujours disponible)
-    2. Alpha Vantage (si API key configurée)
-    3. Twelve Data (si API key configurée)
+    Ordre de priorité (optimisé pour scalping):
+    1. Twelve Data - ~1 min délai, 800 req/jour (RECOMMANDÉ)
+    2. Finnhub - temps réel, 60 req/min (EXCELLENT BACKUP)
+    3. Alpha Vantage - temps réel, 5 req/min (limité)
+    4. yfinance - 15-20 min délai (FALLBACK UNIQUEMENT)
 
-    Configuration des API keys:
-    - Variables d'environnement: ALPHA_VANTAGE_API_KEY, TWELVE_DATA_API_KEY
-    - Ou directement dans le constructeur
+    Configuration des API keys (GRATUIT - sans carte bancaire):
+    - TWELVE_DATA_API_KEY: https://twelvedata.com
+    - FINNHUB_API_KEY: https://finnhub.io
+    - ALPHA_VANTAGE_API_KEY: https://alphavantage.co
     """
 
     def __init__(self,
                  alpha_vantage_key: str = None,
                  twelve_data_key: str = None,
-                 preferred_source: str = "yfinance"):
+                 finnhub_key: str = None,
+                 preferred_source: str = "auto"):
         """
         Initialize multi-source data fetcher.
 
         Args:
             alpha_vantage_key: Alpha Vantage API key (gratuit sur alphavantage.co)
             twelve_data_key: Twelve Data API key (gratuit sur twelvedata.com)
-            preferred_source: Source préférée ("yfinance", "alpha_vantage", "twelve_data")
+            finnhub_key: Finnhub API key (gratuit sur finnhub.io)
+            preferred_source: Source préférée ou "auto" pour sélection intelligente
         """
         # Initialize all sources
         self.sources: Dict[str, DataSource] = {
-            "yfinance": YFinanceSource(),
+            "twelve_data": TwelveDataSource(twelve_data_key),
+            "finnhub": FinnhubSource(finnhub_key),
             "alpha_vantage": AlphaVantageSource(alpha_vantage_key),
-            "twelve_data": TwelveDataSource(twelve_data_key)
+            "yfinance": YFinanceSource()  # Fallback - toujours dernier
         }
 
-        self.preferred_source = preferred_source
+        # Priorité pour le scalping: sources temps réel d'abord
+        self.source_priority = ["twelve_data", "finnhub", "alpha_vantage", "yfinance"]
+
+        # Auto-detect best available source
+        if preferred_source == "auto":
+            self.preferred_source = self._detect_best_source()
+        else:
+            self.preferred_source = preferred_source
+
         self.cache: Dict[str, Tuple[pd.DataFrame, datetime]] = {}
-        self.cache_duration = timedelta(seconds=60)
+        self.cache_duration = timedelta(seconds=30)  # Réduit pour scalping
 
         # Statistics
-        self.fetch_count = {"yfinance": 0, "alpha_vantage": 0, "twelve_data": 0}
-        self.error_count = {"yfinance": 0, "alpha_vantage": 0, "twelve_data": 0}
+        self.fetch_count = {name: 0 for name in self.sources}
+        self.error_count = {name: 0 for name in self.sources}
 
         # Log available sources
         available = [name for name, src in self.sources.items() if src.is_available()]
         logger.info(f"DataFetcher initialized with sources: {', '.join(available)}")
+        logger.info(f"Preferred source: {self.preferred_source}")
+
+        # Warn if using yfinance only
+        if self.preferred_source == "yfinance" and len(available) == 1:
+            logger.warning("[!] ATTENTION: Seul yfinance est disponible (delai 15-20 min)")
+            logger.warning("Pour du scalping, configurez TWELVE_DATA_API_KEY ou FINNHUB_API_KEY")
+            logger.warning("APIs gratuites: https://twelvedata.com | https://finnhub.io")
+
+    def _detect_best_source(self) -> str:
+        """Auto-detect the best available source based on priority."""
+        for source_name in self.source_priority:
+            if source_name in self.sources and self.sources[source_name].is_available():
+                logger.info(f"Auto-selected best source: {source_name}")
+                return source_name
+        return "yfinance"  # Ultimate fallback
 
     def _get_source_order(self) -> List[str]:
-        """Get ordered list of sources to try."""
-        # Start with preferred, then others
-        order = [self.preferred_source]
-        for name in self.sources.keys():
+        """Get ordered list of sources to try (optimized for scalping)."""
+        # Use priority order, with preferred source first
+        order = []
+
+        # Add preferred source first if available
+        if self.preferred_source in self.sources:
+            order.append(self.preferred_source)
+
+        # Then add rest in priority order
+        for name in self.source_priority:
             if name not in order:
                 order.append(name)
+
         return order
 
     def fetch_ohlcv(self, pair: str, timeframe: str = "M15",
@@ -485,9 +667,86 @@ class DataFetcher:
 
 # For backward compatibility
 def create_data_fetcher(alpha_vantage_key: str = None,
-                        twelve_data_key: str = None) -> DataFetcher:
+                        twelve_data_key: str = None,
+                        finnhub_key: str = None) -> DataFetcher:
     """Factory function to create a DataFetcher instance."""
     return DataFetcher(
         alpha_vantage_key=alpha_vantage_key,
-        twelve_data_key=twelve_data_key
+        twelve_data_key=twelve_data_key,
+        finnhub_key=finnhub_key
     )
+
+
+def check_api_keys() -> Dict[str, bool]:
+    """
+    Check which API keys are configured (from api_keys.py or environment).
+
+    Returns:
+        Dict mapping source name to availability status
+    """
+    return {
+        "twelve_data": bool(get_twelve_data_key() or os.environ.get("TWELVE_DATA_API_KEY")),
+        "finnhub": bool(get_finnhub_key() or os.environ.get("FINNHUB_API_KEY")),
+        "alpha_vantage": bool(get_alpha_vantage_key() or os.environ.get("ALPHA_VANTAGE_API_KEY")),
+        "yfinance": True  # Always available
+    }
+
+
+def print_setup_instructions():
+    """Print instructions for setting up API keys."""
+    keys = check_api_keys()
+
+    print("\n" + "=" * 60)
+    print("[DATA] CONFIGURATION DES SOURCES DE DONNEES FOREX")
+    print("=" * 60)
+
+    print("\n[KEYS] Status des API Keys:")
+    for source, available in keys.items():
+        status = "[OK] Configure" if available else "[X] Non configure"
+        print(f"   {source}: {status}")
+
+    if not any([keys["twelve_data"], keys["finnhub"], keys["alpha_vantage"]]):
+        print("\n[!] ATTENTION: Aucune API temps reel configuree!")
+        print("   Le systeme utilise yfinance avec 15-20 min de delai.")
+        print("   Pour du scalping, configurez au moins une API:")
+
+        print("\n[INSTRUCTIONS] APIs 100% GRATUITES:")
+        print("\n   1. TWELVE DATA (recommande - 800 req/jour):")
+        print("      -> Creer compte: https://twelvedata.com")
+        print("      -> Copier l'API key")
+        print("      -> Windows: set TWELVE_DATA_API_KEY=votre_cle")
+        print("      -> Linux:   export TWELVE_DATA_API_KEY=votre_cle")
+
+        print("\n   2. FINNHUB (excellent backup - 60 req/min):")
+        print("      -> Creer compte: https://finnhub.io")
+        print("      -> Copier l'API key")
+        print("      -> Windows: set FINNHUB_API_KEY=votre_cle")
+        print("      -> Linux:   export FINNHUB_API_KEY=votre_cle")
+
+    print("\n" + "=" * 60)
+
+
+if __name__ == "__main__":
+    # Show setup instructions when run directly
+    print_setup_instructions()
+
+    # Test data fetching
+    print("\n[TEST] Recuperation de donnees...")
+    fetcher = DataFetcher()
+
+    # Test with EURUSD
+    print("\nTest EURUSD M15...")
+    df = fetcher.fetch_ohlcv("EURUSD", "M15", 10)
+
+    if df is not None:
+        print(f"[OK] Succes! {len(df)} bougies recuperees")
+        print(f"   Derniere bougie: {df.index[-1]}")
+        print(f"   Close: {df['close'].iloc[-1]:.5f}")
+    else:
+        print("[ERREUR] Echec de recuperation")
+
+    # Show statistics
+    print("\n[STATS] Statistiques:")
+    stats = fetcher.get_statistics()
+    print(f"   Source utilisee: {fetcher.preferred_source}")
+    print(f"   Taux de succes: {stats['success_rate']:.1f}%")
