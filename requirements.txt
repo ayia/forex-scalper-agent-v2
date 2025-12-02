@@ -1,6 +1,24 @@
+# Core Dependencies
 yfinance>=0.2.40
 pandas>=2.0.0
 numpy>=1.24.0
 python-dotenv>=1.0.0
 requests>=2.31.0
 textblob>=0.17.1
+pandas_ta>=0.3.14b
+loguru>=0.7.0
+
+# Machine Learning (optional - for ML regime detection)
+scikit-learn>=1.3.0
+joblib>=1.3.0
+
+# Broker Integration (optional - install as needed)
+# MetaTrader5>=5.0.45  # Windows only, pip install MetaTrader5
+# oandapyV20>=0.7.2    # For OANDA broker
+
+# Backtesting & Analysis
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Async support
+asyncio-throttle>=1.0.2
