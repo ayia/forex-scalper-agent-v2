@@ -89,7 +89,7 @@ class OptimizedCrossScanner:
         except Exception:
             return None
 
-    def calculate_indicators(self, df: pd.DataFrame, config: dict) -> pd.DataFrame:
+    def calculate_indicators(self, df: pd.DataFrame, config: dict = None) -> pd.DataFrame:
         """Calculate all indicators with pair-specific config."""
         df = df.copy()
 
@@ -216,15 +216,184 @@ class OptimizedCrossScanner:
 
         return score
 
+    def calculate_confluence_score(self, current: pd.Series, prev: pd.Series,
+                                   is_bullish: bool, config: dict,
+                                   has_crossover: bool = False) -> Tuple[float, Dict]:
+        """
+        Calculate a more granular and representative confluence score (0-100).
+
+        This scoring system provides:
+        - Continuous values (not discrete jumps)
+        - Different weighting for active signals vs WATCH
+        - Detailed breakdown of each component
+
+        Components and weights:
+        - EMA Crossover/Proximity: 25 pts (crossover=25, proximity scaled 0-20)
+        - Trend Alignment: 20 pts (close vs EMA50 + slope strength)
+        - RSI Position: 15 pts (optimal zone = 15, edge zones scaled)
+        - ADX Strength: 15 pts (scaled by how much above threshold)
+        - MACD Alignment: 15 pts (histogram direction + strength)
+        - Momentum: 10 pts (ROC direction + magnitude)
+        Total: 100 points
+        """
+        details = {}
+        score = 0.0
+
+        # 1. EMA Crossover / Proximity (25 pts max)
+        ema_diff = current['ema_fast'] - current['ema_slow']
+        ema_diff_pct = abs(ema_diff) / current['close'] * 100 if current['close'] > 0 else 0
+
+        if has_crossover:
+            # Full points for actual crossover
+            ema_score = 25.0
+            details['ema_status'] = 'CROSSOVER'
+        else:
+            # For WATCH: score based on proximity to crossover
+            # Closer to crossover = higher score (max 20 pts without actual cross)
+            if ema_diff_pct < 0.05:  # Very close (< 0.05%)
+                ema_score = 20.0
+                details['ema_status'] = 'IMMINENT'
+            elif ema_diff_pct < 0.10:  # Close (< 0.10%)
+                ema_score = 15.0
+                details['ema_status'] = 'NEAR'
+            elif ema_diff_pct < 0.20:  # Approaching (< 0.20%)
+                ema_score = 10.0
+                details['ema_status'] = 'APPROACHING'
+            elif ema_diff_pct < 0.50:  # Distant
+                ema_score = 5.0
+                details['ema_status'] = 'DISTANT'
+            else:
+                ema_score = 0.0
+                details['ema_status'] = 'FAR'
+
+        details['ema_score'] = round(ema_score, 1)
+        details['ema_diff_pct'] = round(ema_diff_pct, 3)
+        score += ema_score
+
+        # 2. Trend Alignment (20 pts max)
+        ema_slope = (current['ema_trend'] - prev['ema_trend']) / prev['ema_trend'] * 100 if prev['ema_trend'] > 0 else 0
+        price_vs_ema50 = (current['close'] - current['ema_trend']) / current['ema_trend'] * 100 if current['ema_trend'] > 0 else 0
+
+        trend_score = 0.0
+        # Price position vs EMA50 (10 pts)
+        if is_bullish and price_vs_ema50 > 0:
+            trend_score += min(10.0, 5.0 + abs(price_vs_ema50) * 2)
+        elif not is_bullish and price_vs_ema50 < 0:
+            trend_score += min(10.0, 5.0 + abs(price_vs_ema50) * 2)
+        elif abs(price_vs_ema50) < 0.1:  # Very close to EMA50
+            trend_score += 3.0
+
+        # EMA50 slope direction (10 pts)
+        if is_bullish and ema_slope > 0:
+            trend_score += min(10.0, 5.0 + abs(ema_slope) * 50)
+        elif not is_bullish and ema_slope < 0:
+            trend_score += min(10.0, 5.0 + abs(ema_slope) * 50)
+
+        details['trend_score'] = round(trend_score, 1)
+        details['price_vs_ema50_pct'] = round(price_vs_ema50, 2)
+        details['ema50_slope'] = round(ema_slope, 4)
+        score += trend_score
+
+        # 3. RSI Position (15 pts max)
+        rsi_low, rsi_high = config['rsi']
+        rsi_val = float(current['rsi'])
+        rsi_half_range = (rsi_high - rsi_low) / 2
+
+        if rsi_low < rsi_val < rsi_high:
+            # Inside range: score based on distance from extremes
+            distance_from_edge = min(rsi_val - rsi_low, rsi_high - rsi_val)
+            rsi_score = 10.0 + (distance_from_edge / rsi_half_range) * 5.0
+            details['rsi_zone'] = 'OPTIMAL'
+        else:
+            # Outside range: reduced score
+            if rsi_val <= rsi_low:
+                overshoot = rsi_low - rsi_val
+                rsi_score = max(0, 5.0 - overshoot * 0.5)
+                details['rsi_zone'] = 'OVERSOLD'
+            else:
+                overshoot = rsi_val - rsi_high
+                rsi_score = max(0, 5.0 - overshoot * 0.5)
+                details['rsi_zone'] = 'OVERBOUGHT'
+
+        details['rsi_score'] = round(rsi_score, 1)
+        score += rsi_score
+
+        # 4. ADX Strength (15 pts max)
+        adx_val = float(current['adx'])
+        adx_min = config['adx']
+
+        if adx_val >= adx_min:
+            # Above threshold: scale by how much above
+            adx_excess = adx_val - adx_min
+            adx_score = 10.0 + min(5.0, adx_excess * 0.25)
+            details['adx_status'] = 'STRONG'
+        else:
+            # Below threshold: partial score based on proximity
+            adx_deficit = adx_min - adx_val
+            adx_score = max(0, 8.0 - adx_deficit * 0.4)
+            details['adx_status'] = 'WEAK' if adx_score < 5 else 'MODERATE'
+
+        details['adx_score'] = round(adx_score, 1)
+        score += adx_score
+
+        # 5. MACD Alignment (15 pts max)
+        macd_hist = float(current['macd_hist'])
+        macd_hist_prev = float(prev['macd_hist'])
+        macd_increasing = macd_hist > macd_hist_prev
+
+        macd_score = 0.0
+        # Direction alignment (10 pts)
+        if is_bullish and macd_hist > 0:
+            macd_score += 10.0
+            details['macd_direction'] = 'BULLISH'
+        elif not is_bullish and macd_hist < 0:
+            macd_score += 10.0
+            details['macd_direction'] = 'BEARISH'
+        elif abs(macd_hist) < abs(macd_hist_prev) * 0.5:
+            macd_score += 3.0
+            details['macd_direction'] = 'WEAKENING'
+        else:
+            details['macd_direction'] = 'CONTRARY'
+
+        # Momentum (5 pts)
+        if (is_bullish and macd_increasing) or (not is_bullish and not macd_increasing):
+            macd_score += 5.0
+            details['macd_momentum'] = 'ACCELERATING'
+        else:
+            details['macd_momentum'] = 'DECELERATING'
+
+        details['macd_score'] = round(macd_score, 1)
+        score += macd_score
+
+        # 6. Price Momentum ROC (10 pts max)
+        roc = (current['close'] - prev['close']) / prev['close'] * 100 if prev['close'] > 0 else 0
+
+        roc_score = 0.0
+        if is_bullish and roc > 0:
+            roc_score = min(10.0, 5.0 + abs(roc) * 20)
+            details['momentum_dir'] = 'POSITIVE'
+        elif not is_bullish and roc < 0:
+            roc_score = min(10.0, 5.0 + abs(roc) * 20)
+            details['momentum_dir'] = 'NEGATIVE'
+        else:
+            roc_score = max(0, 3.0 - abs(roc) * 10)
+            details['momentum_dir'] = 'CONTRARY'
+
+        details['momentum_score'] = round(roc_score, 1)
+        details['roc_pct'] = round(roc, 3)
+        score += roc_score
+
+        return round(score, 1), details
+
     def calculate_score(self, current: pd.Series, prev: pd.Series,
                        is_bullish: bool, config: dict) -> int:
         """
         Calculate confluence score (0-100) for display purposes.
         This is for UI/JSON output, not for signal filtering.
+        Uses the new granular scoring system.
         """
-        # Get backtest score (0-8) and convert to 0-100 scale
-        backtest_score = self.calculate_score_backtest(current, prev, is_bullish, config)
-        return int(backtest_score * 12.5)  # 8 * 12.5 = 100
+        score, _ = self.calculate_confluence_score(current, prev, is_bullish, config, has_crossover=False)
+        return int(score)
 
     def detect_signal(self, df: pd.DataFrame, pair: str, config: dict) -> Optional[Dict]:
         """Detect trading signal based on optimized config for this pair."""
@@ -266,14 +435,21 @@ class OptimizedCrossScanner:
                 sl = float(current['close']) - (float(current['atr']) * self.sl_mult)
                 tp = float(current['close']) + (float(current['atr']) * self.sl_mult * rr)
 
-                score_display = int(backtest_score * 12.5)  # Convert to 0-100 for display
+                # Calculate new granular confluence score with details
+                confluence_score, score_details = self.calculate_confluence_score(
+                    current, prev, True, config, has_crossover=True
+                )
+
                 signal = {
                     'pair': pair,
                     'direction': 'BUY',
+                    'trend': 'BULLISH',
+                    'near_crossover': True,
+                    'ema_status': 'CROSSOVER',
                     'entry': round(float(current['close']), 5),
                     'stop_loss': round(sl, 5),
                     'take_profit': round(tp, 5),
-                    'confluence_score': score_display,
+                    'confluence_score': confluence_score,
                     'backtest_score': backtest_score,
                     'rsi': round(float(current['rsi']), 1),
                     'rsi_status': rsi_status,
@@ -294,14 +470,21 @@ class OptimizedCrossScanner:
                 sl = float(current['close']) + (float(current['atr']) * self.sl_mult)
                 tp = float(current['close']) - (float(current['atr']) * self.sl_mult * rr)
 
-                score_display = int(backtest_score * 12.5)  # Convert to 0-100 for display
+                # Calculate new granular confluence score with details
+                confluence_score, score_details = self.calculate_confluence_score(
+                    current, prev, False, config, has_crossover=True
+                )
+
                 signal = {
                     'pair': pair,
                     'direction': 'SELL',
+                    'trend': 'BEARISH',
+                    'near_crossover': True,
+                    'ema_status': 'CROSSOVER',
                     'entry': round(float(current['close']), 5),
                     'stop_loss': round(sl, 5),
                     'take_profit': round(tp, 5),
-                    'confluence_score': score_display,
+                    'confluence_score': confluence_score,
                     'backtest_score': backtest_score,
                     'rsi': round(float(current['rsi']), 1),
                     'rsi_status': rsi_status,
@@ -319,15 +502,24 @@ class OptimizedCrossScanner:
         if signal is None:
             # Return market analysis without active signal
             trend = 'BULLISH' if current['ema_fast'] > current['ema_slow'] else 'BEARISH'
-            near_cross = bool(abs(current['ema_fast'] - current['ema_slow']) / current['close'] < 0.001)
+
+            # Calculate granular confluence score for WATCH (no crossover)
+            confluence_score, score_details = self.calculate_confluence_score(
+                current, prev, trend == 'BULLISH', config, has_crossover=False
+            )
+
+            # Determine crossover proximity status from score_details
+            ema_status = score_details.get('ema_status', 'FAR')
+            near_cross = ema_status in ['IMMINENT', 'NEAR']
 
             return {
                 'pair': pair,
                 'direction': 'WATCH',
                 'trend': trend,
                 'near_crossover': near_cross,
+                'ema_status': ema_status,
                 'entry': round(float(current['close']), 5),
-                'confluence_score': int(self.calculate_score(current, prev, trend == 'BULLISH', config)),
+                'confluence_score': confluence_score,
                 'rsi': round(float(current['rsi']), 1),
                 'rsi_status': rsi_status,
                 'adx': round(float(current['adx']), 1),
