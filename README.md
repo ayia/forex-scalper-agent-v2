@@ -101,6 +101,7 @@ python scanner_v2.py --pairs USDJPY,USDCHF --mtf-json --min-confluence 80
 | `--interval` | Seconds between scans in continuous mode | `300` |
 | `--pairs` | Comma-separated list of pairs to scan | All pairs |
 | `--improved-only` | Scan only backtest-validated pairs (USDJPY, USDCHF, EURUSD) | `False` |
+| `--optimized-cross` | Scan 10 profitable cross pairs with pair-specific optimized configs | `False` |
 
 ### MTF JSON Output Example
 ```bash
@@ -132,6 +133,59 @@ python scanner_v2.py --mtf-json --min-confluence 80
 ]
 ```
 
+### Optimized Cross Pairs JSON Output Example
+```bash
+python main.py --optimized-cross
+```
+```json
+[
+  {
+    "pair": "NZDJPY",
+    "direction": "BUY",
+    "confluence_score": 75.0,
+    "rsi_status": "OK",
+    "entry_price": 88.456,
+    "stop_loss": 88.256,
+    "take_profit": 88.696,
+    "risk_reward": "1:1.2",
+    "ema_alignment": "BULLISH",
+    "adx": 18.5,
+    "rsi": 52.3,
+    "config": {
+      "rr_ratio": 1.2,
+      "adx_threshold": 12,
+      "rsi_range": [35, 65],
+      "min_score": 6,
+      "backtest_pf": 1.11,
+      "backtest_trades": 657
+    },
+    "timestamp": "2025-12-03T10:30:00.000000"
+  },
+  {
+    "pair": "CADJPY",
+    "direction": "NEUTRAL",
+    "confluence_score": 50.0,
+    "rsi_status": "OK",
+    "entry_price": 106.234,
+    "stop_loss": null,
+    "take_profit": null,
+    "risk_reward": null,
+    "ema_alignment": "MIXED",
+    "adx": 22.1,
+    "rsi": 48.7,
+    "config": {
+      "rr_ratio": 2.5,
+      "adx_threshold": 25,
+      "rsi_range": [35, 65],
+      "min_score": 6,
+      "backtest_pf": 1.10,
+      "backtest_trades": 370
+    },
+    "timestamp": "2025-12-03T10:30:00.000000"
+  }
+]
+```
+
 ## 📂 Project Structure
 
 ```
@@ -147,7 +201,8 @@ forex-scalper-agent-v2/
 │   ├── trend_following.py         # EMA + MACD strategy
 │   ├── mean_reversion.py          # Bollinger Bands + RSI strategy
 │   ├── breakout.py                # Donchian + Volume strategy
-│   └── improved_strategy.py       # IMPROVED v2.3 (backtest-validated)
+│   ├── improved_strategy.py       # IMPROVED v2.3 (backtest-validated)
+│   └── core/optimized_cross_scanner.py  # Optimized Cross Pairs v2.4
 │
 ├── 🧠 Market Analysis
 │   ├── market_regime_detector.py  # 6-regime classification
@@ -320,7 +375,7 @@ STRATEGY_PARAMS = {
 | **Volume Metrics** | Volume Ratio, RVI, VPT, A/D Line, OBV |
 | **Best For** | Volatile markets with breakouts |
 
-### 4. IMPROVED Strategies (NEW in v2.3.0 - RECOMMENDED)
+### 4. IMPROVED Strategies (v2.3.0)
 Backtest-validated strategies with proven profitability (+6.46% over 60 days).
 
 | Parameter | ImprovedTrend | ImprovedScalping |
@@ -349,7 +404,35 @@ python scanner_v2.py --improved-only --interval 120
 python run_backtest.py --improved --pairs USDJPY,USDCHF,EURUSD --days 60
 ```
 
-### 5. Enhanced Scalping (v2.2.0)
+### 5. Optimized Cross Pairs (NEW in v2.4.0 - RECOMMENDED)
+10 cross pairs with pair-specific optimized parameters based on 2-year backtest validation.
+
+| Pair | Profit Factor | R:R | ADX | RSI Range | Min Score | Trades |
+|------|---------------|-----|-----|-----------|-----------|--------|
+| **NZDJPY** | 1.11 | 1.2 | 12 | 35-65 | 6 | 657 |
+| **CADJPY** | 1.10 | 2.5 | 25 | 35-65 | 6 | 370 |
+| **AUDJPY** | 1.07 | 1.2 | 20 | 30-70 | 6 | 788 |
+| **GBPCAD** | 1.05 | 2.0 | 25 | 35-65 | 6 | 452 |
+| **CHFJPY** | 1.05 | 1.5 | 25 | 25-75 | 4 | 1080 |
+| **EURJPY** | 1.04 | 1.8 | 20 | 25-75 | 5 | 947 |
+| **EURCAD** | 1.03 | 2.5 | 15 | 35-65 | 6 | 380 |
+| **GBPAUD** | 1.02 | 2.5 | 12 | 35-65 | 6 | 443 |
+| **EURAUD** | 1.01 | 2.5 | 25 | 35-65 | 4 | 572 |
+| **GBPJPY** | 1.01 | 1.2 | 25 | 30-70 | 6 | 686 |
+
+**Key Features:**
+- EMA crossover strategy (8/21/50) optimized per pair
+- Score calculation matching backtest exactly (0-8 scale)
+- RSI status indication (OK, OVERBOUGHT, OVERSOLD)
+- JSON output sorted by: active signals first, then confluence score, then backtest PF
+
+**Usage:**
+```bash
+# Scan all 10 optimized cross pairs
+python main.py --optimized-cross
+```
+
+### 6. Enhanced Scalping (v2.2.0)
 Advanced multi-confirmation scalping system inspired by DIY Custom Strategy Builder [ZP].
 
 | Parameter | Value |
@@ -703,6 +786,40 @@ This software is for educational purposes only. Trading forex involves substanti
 
 ## 📝 Changelog
 
+### Version 2.4.0 (December 2025) - Optimized Cross Pairs
+*10 profitable cross pairs with pair-specific optimized configurations*
+
+#### New Optimized Cross Scanner (`core/optimized_cross_scanner.py`)
+- **10 Profitable Cross Pairs**: Selected from 2-year backtest (PF >= 1.0)
+- **Pair-Specific Parameters**: Each pair has optimal R:R, ADX, RSI range, min score
+- **EMA Crossover Strategy**: 8/21/50 periods with confluence scoring
+- **Backtest-Accurate Scoring**: 0-8 scale matching optimizer exactly
+- **RSI Status Indicator**: Shows OK, OVERBOUGHT, or OVERSOLD status
+
+#### Profitable Pairs (Sorted by Profit Factor)
+| Pair | PF | R:R | Trades |
+|------|-----|-----|--------|
+| NZDJPY | 1.11 | 1.2 | 657 |
+| CADJPY | 1.10 | 2.5 | 370 |
+| AUDJPY | 1.07 | 1.2 | 788 |
+| GBPCAD | 1.05 | 2.0 | 452 |
+| CHFJPY | 1.05 | 1.5 | 1080 |
+| EURJPY | 1.04 | 1.8 | 947 |
+| EURCAD | 1.03 | 2.5 | 380 |
+| GBPAUD | 1.02 | 2.5 | 443 |
+| EURAUD | 1.01 | 2.5 | 572 |
+| GBPJPY | 1.01 | 1.2 | 686 |
+
+#### New CLI Parameter
+- `--optimized-cross`: Scan 10 profitable cross pairs with optimized configs (JSON output)
+
+#### JSON Output Features
+- Sorted by: active signals (BUY/SELL) first, then confluence score desc, then backtest PF desc
+- Includes pair-specific config in each signal
+- Real-time data via yfinance
+
+---
+
 ### Version 2.3.0 (December 2025) - Backtest-Validated Strategies
 *IMPROVED strategies with proven profitability*
 
@@ -786,5 +903,5 @@ This software is for educational purposes only. Trading forex involves substanti
 ---
 
 **Author**: Forex Scalper Agent V2
-**Version**: 2.3.0
+**Version**: 2.4.0
 **Last Updated**: December 2025

@@ -10,6 +10,7 @@ Usage:
     python main.py --mtf-json                # MTF signals as JSON
     python main.py --pairs USDJPY,USDCHF     # Custom pairs
     python main.py --improved-only           # Validated pairs only
+    python main.py --optimized-cross         # 10 profitable cross pairs with optimal configs
     python main.py --interval 300            # Continuous mode
 
 Part of Forex Scalper Agent V2 - Complete Architecture
@@ -19,8 +20,8 @@ import logging
 import argparse
 import json
 
-# Suppress all logging if --mtf-json flag is present (must be done before imports)
-if '--mtf-json' in sys.argv:
+# Suppress all logging if --mtf-json or --optimized-cross flag is present
+if '--mtf-json' in sys.argv or '--optimized-cross' in sys.argv:
     logging.disable(logging.CRITICAL)
     try:
         from loguru import logger as loguru_logger
@@ -55,6 +56,7 @@ Examples:
   python main.py --mtf-json                Get MTF signals as JSON
   python main.py --pairs USDJPY,USDCHF     Scan specific pairs
   python main.py --improved-only           Scan backtest-validated pairs
+  python main.py --optimized-cross         10 profitable cross pairs (optimized configs)
   python main.py --interval 300            Continuous mode (5 min interval)
 
 Strategies:
@@ -63,6 +65,7 @@ Strategies:
   - Breakout: Donchian Channels + Volume
   - ImprovedTrend v2.3: Backtest-validated (+6.46% profit)
   - ImprovedScalping v2.3: For USDJPY, USDCHF
+  - OptimizedCross: 10 cross pairs with pair-specific optimization (PF 1.01-1.11)
         """
     )
 
@@ -105,6 +108,11 @@ Strategies:
         help='Scan only pairs validated by IMPROVED strategies (USDJPY, USDCHF, EURUSD)'
     )
     parser.add_argument(
+        '--optimized-cross',
+        action='store_true',
+        help='Scan 10 profitable cross pairs with optimized configs (JSON output)'
+    )
+    parser.add_argument(
         '--balance',
         type=float,
         default=10000.0,
@@ -144,6 +152,14 @@ Strategies:
             custom_pairs=custom_pairs
         )
         signals = scanner.get_mtf_signals_json(min_confluence=args.min_confluence)
+        print(json.dumps(signals, indent=2))
+        return
+
+    # Optimized Cross Pairs mode - scan 10 profitable pairs with optimal configs
+    if args.optimized_cross:
+        from core.optimized_cross_scanner import OptimizedCrossScanner
+        scanner = OptimizedCrossScanner()
+        signals = scanner.scan_all()
         print(json.dumps(signals, indent=2))
         return
 
