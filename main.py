@@ -1,148 +1,164 @@
+#!/usr/bin/env python3
 """
-Forex Scalper Agent - Main Entry Point
-This module provides the main ForexScalperAgent class for running the trading system.
-"""
+Forex Scalper Agent V2 - Main Entry Point
+==========================================
+Lightweight CLI entry point that delegates to the core scanner.
 
+Usage:
+    python main.py --once                    # Single scan
+    python main.py --json                    # JSON output
+    python main.py --mtf-json                # MTF signals as JSON
+    python main.py --pairs USDJPY,USDCHF     # Custom pairs
+    python main.py --improved-only           # Validated pairs only
+    python main.py --interval 300            # Continuous mode
+
+Part of Forex Scalper Agent V2 - Complete Architecture
+"""
 import sys
-from typing import Dict, List
-from config import STRATEGY_PARAMS, RISK_PARAMS, ALL_PAIRS, TIMEFRAMES
-from data_fetcher import DataFetcher
-from universe_filter import UniverseFilter
-from breakout import BreakoutStrategy
-from trend_following import TrendFollowingStrategy
-from mean_reversion import MeanReversionStrategy
-from consensus_validator import ConsensusValidator
-from risk_calculator import RiskCalculator
-from trade_logger import TradeLogger
-from sentiment_analyzer import SentimentAnalyzer
+import logging
+import argparse
+import json
 
+# Suppress all logging if --mtf-json flag is present (must be done before imports)
+if '--mtf-json' in sys.argv:
+    logging.disable(logging.CRITICAL)
+    try:
+        from loguru import logger as loguru_logger
+        loguru_logger.disable("")
+    except ImportError:
+        pass
+    import warnings
+    warnings.filterwarnings('ignore')
+    import os
+    sys.stderr = open(os.devnull, 'w')
 
-class ForexScalperAgent:
-    """
-    Main agent for coordinating forex scalping operations.
-    """
-    
-    def __init__(self):
-        """Initialize the ForexScalperAgent with all necessary components."""
-        self.data_fetcher = DataFetcher()
-        self.universe_filter = UniverseFilter()
-        self.risk_calculator = RiskCalculator()
-        self.trade_logger = TradeLogger()
-        self.sentiment_analyzer = SentimentAnalyzer()
-        
-        # Initialize strategies
-        self.strategies = [
-            BreakoutStrategy(),
-            TrendFollowingStrategy(),
-            MeanReversionStrategy()
-        ]
-        
-        self.consensus_validator = ConsensusValidator(self.strategies)
-        
-        # Trading pairs
-        self.pairs = [f"{p}=X" for p in ALL_PAIRS]
-        self.timeframes = TIMEFRAMES
-    
-    def run_scan(self, once: bool = False) -> List[Dict]:
-        """
-        Run a scan of all trading pairs.
-        
-        Args:
-            once: If True, run once and exit. If False, run continuously.
-        
-        Returns:
-            List of trade signals found during the scan.
-        """
-        print("Starting forex scalper scan...")
-        signals = []
-        
-        # Filter universe
-        filtered_pairs = self.universe_filter.filter_universe(self.pairs)
-        print(f"Filtered pairs: {len(filtered_pairs)} from {len(self.pairs)}")
-        
-        # Scan each pair
-        for pair in filtered_pairs:
-            for timeframe in self.timeframes:
-                try:
-                    # Fetch data
-                    data = self.data_fetcher.fetch_data(pair, timeframe)
-                    if data is None or data.empty:
-                        continue
-                    
-                    # Get sentiment
-                    sentiment = self.sentiment_analyzer.analyze(pair)
-                    
-                    # Run strategies
-                    strategy_signals = []
-                    for strategy in self.strategies:
-                        signal = strategy.generate_signal(data, pair, timeframe)
-                        if signal:
-                            strategy_signals.append(signal)
-                    
-                    # Validate with consensus
-                    if strategy_signals:
-                        validated = self.consensus_validator.validate(strategy_signals)
-                        if validated:
-                            # Calculate risk
-                            risk = self.risk_calculator.calculate_position_size(
-                                pair, validated['entry_price'], validated['stop_loss']
-                            )
-                            validated['position_size'] = risk
-                            
-                            # Log trade
-                            self.trade_logger.log_signal(validated)
-                            signals.append(validated)
-                            
-                            print(f"Signal found: {validated}")
-                
-                except Exception as e:
-                    print(f"Error scanning {pair} {timeframe}: {e}")
-                    continue
-        
-        print(f"Scan complete. Found {len(signals)} signals.")
-        return signals
-    
-    def run(self, once: bool = False):
-        """
-        Run the agent.
-        
-        Args:
-            once: If True, run once and exit. If False, run continuously.
-        """
-        try:
-            signals = self.run_scan(once=once)
-            
-            if once:
-                print(f"Single scan complete. Found {len(signals)} signals.")
-                return signals
-            else:
-                # For continuous mode, would implement loop here
-                print("Continuous mode not yet implemented.")
-                return signals
-        
-        except KeyboardInterrupt:
-            print("\nStopping forex scalper agent...")
-            sys.exit(0)
-        except Exception as e:
-            print(f"Error running agent: {e}")
-            sys.exit(1)
+from config import LOG_CONFIG
+
+# Configure logging
+logging.basicConfig(
+    level=getattr(logging, LOG_CONFIG.get('log_level', 'INFO')),
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+logger = logging.getLogger(__name__)
 
 
 def main():
-    """Main entry point for the script."""
-    import argparse
-    
-    parser = argparse.ArgumentParser(description='Forex Scalper Agent')
-    parser.add_argument('--once', action='store_true', help='Run once and exit')
-    parser.add_argument('--json', action='store_true', help='Output in JSON format')
-    
+    """Main entry point."""
+    parser = argparse.ArgumentParser(
+        description='Forex Scalper Agent V2 - Adaptive Trading System',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python main.py --once                    Run a single scan
+  python main.py --json --once             Single scan with JSON output
+  python main.py --mtf-json                Get MTF signals as JSON
+  python main.py --pairs USDJPY,USDCHF     Scan specific pairs
+  python main.py --improved-only           Scan backtest-validated pairs
+  python main.py --interval 300            Continuous mode (5 min interval)
+
+Strategies:
+  - TrendFollowing: EMA stack + MACD crossover
+  - MeanReversion: Bollinger Bands + RSI extremes
+  - Breakout: Donchian Channels + Volume
+  - ImprovedTrend v2.3: Backtest-validated (+6.46% profit)
+  - ImprovedScalping v2.3: For USDJPY, USDCHF
+        """
+    )
+
+    parser.add_argument(
+        '--once',
+        action='store_true',
+        help='Run a single scan and exit'
+    )
+    parser.add_argument(
+        '--json',
+        action='store_true',
+        help='Output signals in JSON format'
+    )
+    parser.add_argument(
+        '--interval',
+        type=int,
+        default=300,
+        help='Interval between scans in continuous mode (seconds, default: 300)'
+    )
+    parser.add_argument(
+        '--mtf-json',
+        action='store_true',
+        help='Output MTF signals as JSON sorted by confluence (descending)'
+    )
+    parser.add_argument(
+        '--min-confluence',
+        type=float,
+        default=60.0,
+        help='Minimum confluence score for --mtf-json (default: 60)'
+    )
+    parser.add_argument(
+        '--pairs',
+        type=str,
+        default=None,
+        help='Comma-separated list of pairs to scan (e.g., USDJPY,USDCHF)'
+    )
+    parser.add_argument(
+        '--improved-only',
+        action='store_true',
+        help='Scan only pairs validated by IMPROVED strategies (USDJPY, USDCHF, EURUSD)'
+    )
+    parser.add_argument(
+        '--balance',
+        type=float,
+        default=10000.0,
+        help='Account balance in USD (default: 10000)'
+    )
+    parser.add_argument(
+        '--max-risk',
+        type=float,
+        default=2.0,
+        help='Maximum risk per session as %% of account (default: 2.0)'
+    )
+    parser.add_argument(
+        '--version',
+        action='version',
+        version='Forex Scalper Agent V2.3'
+    )
+
     args = parser.parse_args()
-    
-    agent = ForexScalperAgent()
-    signals = agent.run(once=args.once)
-    
-    if args.json:
-        import json
+
+    # Handle --improved-only shortcut
+    if args.improved_only:
+        args.pairs = 'USDJPY,USDCHF,EURUSD'
+
+    # Parse custom pairs if provided
+    custom_pairs = None
+    if args.pairs:
+        custom_pairs = [p.strip().upper() for p in args.pairs.split(',')]
+
+    # Import scanner (after logging setup to respect --mtf-json)
+    from core.scanner import ForexScalperV2
+
+    # MTF JSON mode - output signals and exit
+    if args.mtf_json:
+        scanner = ForexScalperV2(
+            account_balance=args.balance,
+            max_risk_percent=args.max_risk,
+            custom_pairs=custom_pairs
+        )
+        signals = scanner.get_mtf_signals_json(min_confluence=args.min_confluence)
+        print(json.dumps(signals, indent=2))
+        return
+
+    # Initialize scanner
+    scanner = ForexScalperV2(
+        account_balance=args.balance,
+        max_risk_percent=args.max_risk,
+        custom_pairs=custom_pairs
+    )
+
+    # Run scanner
+    signals = scanner.run(once=args.once, continuous_interval=args.interval)
+
+    # Output results
+    if args.json and signals:
         print(json.dumps(signals, indent=2))
 
 
