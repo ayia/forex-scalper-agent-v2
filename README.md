@@ -102,6 +102,7 @@ python scanner_v2.py --pairs USDJPY,USDCHF --mtf-json --min-confluence 80
 | `--pairs` | Comma-separated list of pairs to scan | All pairs |
 | `--improved-only` | Scan only backtest-validated pairs (USDJPY, USDCHF, EURUSD) | `False` |
 | `--optimized-cross` | Scan 10 profitable cross pairs with pair-specific optimized configs | `False` |
+| `--active-only` | With `--optimized-cross`: show only BUY/SELL signals (exclude WATCH) | `False` |
 
 ### MTF JSON Output Example
 ```bash
@@ -135,56 +136,70 @@ python scanner_v2.py --mtf-json --min-confluence 80
 
 ### Optimized Cross Pairs JSON Output Example
 ```bash
+# All signals (BUY, SELL, WATCH)
 python main.py --optimized-cross
+
+# Only active signals (BUY/SELL)
+python main.py --optimized-cross --active-only
 ```
 ```json
 [
   {
-    "pair": "NZDJPY",
+    "pair": "CHFJPY",
     "direction": "BUY",
-    "confluence_score": 75.0,
+    "trend": "BULLISH",
+    "near_crossover": true,
+    "ema_status": "CROSSOVER",
+    "entry": 194.126,
+    "stop_loss": 193.771,
+    "take_profit": 194.658,
+    "confluence_score": 75.8,
+    "backtest_score": 7,
+    "rsi": 50.9,
     "rsi_status": "OK",
-    "entry_price": 88.456,
-    "stop_loss": 88.256,
-    "take_profit": 88.696,
-    "risk_reward": "1:1.2",
-    "ema_alignment": "BULLISH",
-    "adx": 18.5,
-    "rsi": 52.3,
+    "adx": 52.7,
     "config": {
-      "rr_ratio": 1.2,
-      "adx_threshold": 12,
-      "rsi_range": [35, 65],
-      "min_score": 6,
-      "backtest_pf": 1.11,
-      "backtest_trades": 657
+      "rr": 1.5,
+      "adx_min": 25,
+      "rsi_range": "25-75",
+      "min_score": 4,
+      "backtest_pf": 1.05
     },
-    "timestamp": "2025-12-03T10:30:00.000000"
+    "timestamp": "2025-12-03T20:49:44.926627"
   },
   {
-    "pair": "CADJPY",
-    "direction": "NEUTRAL",
-    "confluence_score": 50.0,
+    "pair": "NZDJPY",
+    "direction": "WATCH",
+    "trend": "BULLISH",
+    "near_crossover": true,
+    "ema_status": "NEAR",
+    "entry": 89.608,
+    "confluence_score": 74.0,
+    "rsi": 57.6,
     "rsi_status": "OK",
-    "entry_price": 106.234,
-    "stop_loss": null,
-    "take_profit": null,
-    "risk_reward": null,
-    "ema_alignment": "MIXED",
-    "adx": 22.1,
-    "rsi": 48.7,
+    "adx": 55.9,
     "config": {
-      "rr_ratio": 2.5,
-      "adx_threshold": 25,
-      "rsi_range": [35, 65],
+      "rr": 1.2,
+      "adx_min": 12,
+      "rsi_range": "35-65",
       "min_score": 6,
-      "backtest_pf": 1.10,
-      "backtest_trades": 370
+      "backtest_pf": 1.11
     },
-    "timestamp": "2025-12-03T10:30:00.000000"
+    "timestamp": "2025-12-03T20:49:43.358747"
   }
 ]
 ```
+
+#### Signal Fields Explanation
+| Field | Description |
+|-------|-------------|
+| `direction` | `BUY`, `SELL` (active signals) or `WATCH` (no crossover yet) |
+| `trend` | Current EMA trend: `BULLISH` or `BEARISH` |
+| `near_crossover` | `true` if EMA crossover is imminent or near |
+| `ema_status` | Crossover proximity: `CROSSOVER`, `IMMINENT`, `NEAR`, `APPROACHING`, `DISTANT`, `FAR` |
+| `confluence_score` | Granular score 0-100 (continuous, not discrete) |
+| `backtest_score` | Original 0-8 backtest score (only for BUY/SELL) |
+| `stop_loss` / `take_profit` | Only present for active BUY/SELL signals |
 
 ## 📂 Project Structure
 
@@ -428,8 +443,11 @@ python run_backtest.py --improved --pairs USDJPY,USDCHF,EURUSD --days 60
 
 **Usage:**
 ```bash
-# Scan all 10 optimized cross pairs
+# Scan all 10 optimized cross pairs (all signals)
 python main.py --optimized-cross
+
+# Only active BUY/SELL signals (no WATCH)
+python main.py --optimized-cross --active-only
 ```
 
 ### 6. Enhanced Scalping (v2.2.0)
@@ -786,6 +804,29 @@ This software is for educational purposes only. Trading forex involves substanti
 
 ## 📝 Changelog
 
+### Version 2.5.0 (December 2025) - Granular Confluence Scoring
+*Improved scoring system with continuous values and better signal representation*
+
+#### New Granular Confluence Score System
+- **Continuous Scoring**: Replaced discrete 0-8 backtest score with granular 0-100 scale
+- **6 Weighted Components**:
+  - EMA Crossover/Proximity: 25 pts (CROSSOVER=25, IMMINENT=20, NEAR=15, APPROACHING=10, DISTANT=5)
+  - Trend Alignment: 20 pts (price vs EMA50 + slope strength)
+  - RSI Position: 15 pts (optimal zone scoring with edge penalties)
+  - ADX Strength: 15 pts (scaled by threshold excess)
+  - MACD Alignment: 15 pts (direction + momentum)
+  - Price Momentum: 10 pts (ROC direction + magnitude)
+
+#### Unified JSON Structure
+- All signals (BUY/SELL/WATCH) now have consistent fields: `trend`, `near_crossover`, `ema_status`
+- `ema_status` shows crossover proximity: `CROSSOVER`, `IMMINENT`, `NEAR`, `APPROACHING`, `DISTANT`, `FAR`
+- Proper sorting: active signals first, then by confluence_score descending
+
+#### New CLI Parameter
+- `--active-only`: With `--optimized-cross`, show only BUY/SELL signals (exclude WATCH)
+
+---
+
 ### Version 2.4.0 (December 2025) - Optimized Cross Pairs
 *10 profitable cross pairs with pair-specific optimized configurations*
 
@@ -810,7 +851,7 @@ This software is for educational purposes only. Trading forex involves substanti
 | EURAUD | 1.01 | 2.5 | 572 |
 | GBPJPY | 1.01 | 1.2 | 686 |
 
-#### New CLI Parameter
+#### CLI Parameter
 - `--optimized-cross`: Scan 10 profitable cross pairs with optimized configs (JSON output)
 
 #### JSON Output Features
@@ -903,5 +944,5 @@ This software is for educational purposes only. Trading forex involves substanti
 ---
 
 **Author**: Forex Scalper Agent V2
-**Version**: 2.4.0
+**Version**: 2.5.0
 **Last Updated**: December 2025

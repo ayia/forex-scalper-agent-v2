@@ -11,6 +11,7 @@ Usage:
     python main.py --pairs USDJPY,USDCHF     # Custom pairs
     python main.py --improved-only           # Validated pairs only
     python main.py --optimized-cross         # 10 profitable cross pairs with optimal configs
+    python main.py --optimized-cross --active-only  # Only BUY/SELL signals
     python main.py --interval 300            # Continuous mode
 
 Part of Forex Scalper Agent V2 - Complete Architecture
@@ -57,6 +58,7 @@ Examples:
   python main.py --pairs USDJPY,USDCHF     Scan specific pairs
   python main.py --improved-only           Scan backtest-validated pairs
   python main.py --optimized-cross         10 profitable cross pairs (optimized configs)
+  python main.py --optimized-cross --active-only   Only BUY/SELL signals (no WATCH)
   python main.py --interval 300            Continuous mode (5 min interval)
 
 Strategies:
@@ -113,6 +115,11 @@ Strategies:
         help='Scan 10 profitable cross pairs with optimized configs (JSON output)'
     )
     parser.add_argument(
+        '--active-only',
+        action='store_true',
+        help='With --optimized-cross: show only active signals (BUY/SELL), exclude WATCH'
+    )
+    parser.add_argument(
         '--balance',
         type=float,
         default=10000.0,
@@ -160,6 +167,11 @@ Strategies:
         from core.optimized_cross_scanner import OptimizedCrossScanner
         scanner = OptimizedCrossScanner()
         signals = scanner.scan_all()
+
+        # Filter to active signals only if --active-only is set
+        if args.active_only:
+            signals = [s for s in signals if s['direction'] in ['BUY', 'SELL']]
+
         print(json.dumps(signals, indent=2))
         return
 
