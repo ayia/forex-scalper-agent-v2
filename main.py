@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Forex Scalper Agent V3.4 - Main Entry Point
+Forex Scalper Agent V3.5 - Main Entry Point
 ============================================
 Lightweight CLI entry point for VALIDATED strategies only.
 
@@ -9,17 +9,19 @@ VALIDATION STATUS (as of 2024-12):
     Anti-overfitting tests: Monte Carlo, Walk-Forward, Parameter Jitter
     Periods tested: COVID, Ukraine War, Banking Crisis, Fed Hiking, etc.
 
-    VALIDATED (2 pairs):
+    VALIDATED (3 pairs):
     - CADJPY: EMA Crossover (8/21/50), 7/9 periods, WFE=309%
     - EURCHF: Mean Reversion Z-Score, PF=1.97, WR=50.8%, Monte Carlo 100%
+    - EURGBP: RSI Divergence + Stochastic Double, PF=1.10-1.31, Score=85.5/100
 
 Usage:
     python main.py --pairs CADJPY            # Scan CADJPY (validated)
     python main.py --pairs EURCHF            # Scan EURCHF (validated)
-    python main.py --pairs CADJPY,EURCHF     # Scan both validated pairs
+    python main.py --pairs EURGBP            # Scan EURGBP (validated - NEW)
+    python main.py --pairs CADJPY,EURCHF,EURGBP  # Scan all validated pairs
     python main.py --pairs CADJPY --active-only  # Only BUY/SELL signals
 
-Part of Forex Scalper Agent V3.4
+Part of Forex Scalper Agent V3.5
 """
 import sys
 import logging
@@ -53,18 +55,20 @@ logger = logging.getLogger(__name__)
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description='Forex Scalper Agent V3.4 - Adaptive Trading System',
+        description='Forex Scalper Agent V3.5 - Adaptive Trading System',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   python main.py --pairs CADJPY              Scan CADJPY (VALIDATED - EMA Crossover)
   python main.py --pairs EURCHF              Scan EURCHF (VALIDATED - Mean Reversion)
-  python main.py --pairs CADJPY,EURCHF       Scan both validated pairs
+  python main.py --pairs EURGBP              Scan EURGBP (VALIDATED - RSI Divergence + Stochastic)
+  python main.py --pairs CADJPY,EURCHF,EURGBP  Scan all validated pairs
   python main.py --pairs CADJPY --active-only  Only BUY/SELL signals
 
-Validated Pairs (tested on 9 historical periods including COVID, Ukraine War):
+Validated Pairs (tested on 8 historical periods including COVID, Ukraine War):
   - CADJPY: EMA Crossover (8/21/50), 7/9 periods pass, WFE=309%
   - EURCHF: Mean Reversion Z-Score, PF=1.97, WR=50.8%, Monte Carlo 100%
+  - EURGBP: RSI Divergence + Stochastic Double, PF=1.10-1.31, Score=85.5/100
         """
     )
 
@@ -131,7 +135,7 @@ Validated Pairs (tested on 9 historical periods including COVID, Ukraine War):
     parser.add_argument(
         '--version',
         action='version',
-        version='Forex Scalper Agent V3.4 (CADJPY + EURCHF validated)'
+        version='Forex Scalper Agent V3.5 (CADJPY + EURCHF + EURGBP validated)'
     )
 
     args = parser.parse_args()
@@ -155,15 +159,18 @@ Validated Pairs (tested on 9 historical periods including COVID, Ukraine War):
     if args.pairs and custom_pairs:
         # Import dedicated scanners
         from core.eurchf_mean_reversion_scanner import EURCHFMeanReversionScanner
+        from core.eurgbp_validated_scanner import EURGBPValidatedScanner
 
         # Pairs with dedicated scanners
         MEAN_REVERSION_PAIRS = {'EURCHF'}
+        EURGBP_PAIRS = {'EURGBP'}
 
-        # All available optimized pairs (EMA + Mean Reversion)
-        ALL_AVAILABLE_PAIRS = OPTIMIZED_PAIRS | MEAN_REVERSION_PAIRS
+        # All available optimized pairs (EMA + Mean Reversion + EURGBP)
+        ALL_AVAILABLE_PAIRS = OPTIMIZED_PAIRS | MEAN_REVERSION_PAIRS | EURGBP_PAIRS
 
         # Separate pairs by strategy type
         eurchf_request = [p for p in custom_pairs if p in MEAN_REVERSION_PAIRS]
+        eurgbp_request = [p for p in custom_pairs if p in EURGBP_PAIRS]
         ema_request = [p for p in custom_pairs if p in OPTIMIZED_PAIRS]
         non_optimized = [p for p in custom_pairs if p not in ALL_AVAILABLE_PAIRS]
 
@@ -184,6 +191,27 @@ Validated Pairs (tested on 9 historical periods including COVID, Ukraine War):
             result = eurchf_scanner.scan()
             if result and 'error' not in result:
                 # confluence_score already included in scanner
+                signals.append(result)
+
+        # Scan EURGBP with validated scanner (RSI Divergence + Stochastic Double)
+        if eurgbp_request:
+            eurgbp_scanner = EURGBPValidatedScanner()
+            result = eurgbp_scanner.scan()
+            if result and 'error' not in result:
+                # Add confluence_score based on signal quality
+                if result.get('direction') in ['BUY', 'SELL']:
+                    # Active signal: base 70 + adjustments
+                    base_score = 70
+                    if result.get('regime_tradeable', False):
+                        base_score += 10
+                    if result.get('session_tradeable', False):
+                        base_score += 10
+                    # Adjust by position multiplier
+                    base_score *= result.get('position_multiplier', 1.0)
+                    result['confluence_score'] = min(100, base_score)
+                else:
+                    # WATCH or BLOCKED
+                    result['confluence_score'] = 40 if result.get('direction') == 'BLOCKED' else 30
                 signals.append(result)
 
         # Scan other pairs with EMA CrossOver scanner

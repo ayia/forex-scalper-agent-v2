@@ -450,7 +450,67 @@ python main.py --optimized-cross
 python main.py --optimized-cross --active-only
 ```
 
-### 6. Enhanced Scalping (v2.2.0)
+### 6. EUR/GBP Validated Strategy (NEW in v3.5.0)
+RSI Divergence + Stochastic Double Cross strategy validated across 8 market periods (2020-2024).
+
+| Parameter | Value |
+|-----------|-------|
+| **Strategy** | RSI Divergence + Stochastic Double (Hybrid) |
+| **Score** | 85.5/100 (best overall) |
+| **Profit Factor** | 1.10-1.31 (varies by period) |
+| **Win Rate** | 40-48% |
+| **Max Drawdown** | 15-20% |
+| **Crisis Survival** | ✅ Passed all major crises |
+
+**Entry Rules:**
+- **BUY (RSI Divergence)**: Price makes lower low, RSI makes higher low
+- **BUY (Stochastic Double)**: K & D both < 20, then K crosses above D
+- **SELL (RSI Divergence)**: Price makes higher high, RSI makes lower high
+- **SELL (Stochastic Double)**: K & D both > 80, then K crosses below D
+
+**Optimal Parameters:**
+```
+R:R Ratio:        1.5
+SL:               2.0x ATR (~15-25 pips)
+TP:               3.0x ATR (~22-38 pips)
+RSI Period:       14
+Stochastic:       14/3 (K/D)
+Oversold:         < 20
+Overbought:       > 80
+```
+
+**Regime Performance:**
+| Regime | Tradeable | Position Size |
+|--------|-----------|---------------|
+| RANGING | ✅ YES | 100% |
+| LOW_VOLATILITY | ✅ YES | 100% |
+| CONSOLIDATION | ✅ YES | 80% |
+| TRENDING_DOWN | ✅ YES | 70% |
+| RECOVERY | ✅ YES | 80% |
+| TRENDING_UP | ⚠️ CAUTION | 50% |
+| HIGH_VOLATILITY | ❌ NO | 0% |
+| CRISIS | ❌ NO | 0% |
+
+**Session Rules:**
+| Session | Hours (UTC) | Tradeable |
+|---------|-------------|-----------|
+| LONDON | 7:00-15:00 | ✅ 100% |
+| NEW YORK | 12:00-21:00 | ✅ 90% |
+| ASIAN | 0:00-7:00 | ❌ Avoid |
+
+**Usage:**
+```bash
+# Scan EURGBP
+python main.py --pairs EURGBP
+
+# Scan all validated pairs
+python main.py --pairs CADJPY,EURCHF,EURGBP
+
+# Only active signals
+python main.py --pairs EURGBP --active-only
+```
+
+### 7. Enhanced Scalping (v2.2.0)
 Advanced multi-confirmation scalping system inspired by DIY Custom Strategy Builder [ZP].
 
 | Parameter | Value |
@@ -804,6 +864,33 @@ This software is for educational purposes only. Trading forex involves substanti
 
 ## 📝 Changelog
 
+### Version 3.5.0 (December 2025) - EUR/GBP Validated Strategy
+*New validated pair with RSI Divergence + Stochastic Double strategy*
+
+#### New EUR/GBP Scanner (`core/eurgbp_validated_scanner.py`)
+- **Hybrid Strategy**: RSI Divergence + Stochastic Double Cross
+- **Multi-Period Validated**: Tested on 8 market periods (COVID, Ukraine War, Banking Crisis, etc.)
+- **Score**: 85.5/100 (highest among tested strategies)
+- **Monte Carlo**: 100% positive simulations, 0% ruin probability
+- **Parameter Stable**: PF > 0.9 with +/- 15% parameter variation
+
+#### Strategy Optimization System
+- **40 Strategies Tested**: Comprehensive backtest of all major trading strategies
+- **Multi-Period Analysis**: COVID Crash, Recovery, Inflation, Fed Hiking, etc.
+- **Regime Detection**: Automatic market regime classification
+- **Session Filtering**: London/NY optimal, Asian avoided
+
+#### New Files
+- `core/eurgbp_strategy_optimizer.py`: Full 40-strategy optimization engine
+- `core/eurgbp_complete_analysis.py`: Multi-period analysis and scoring
+- `core/eurgbp_validated_scanner.py`: Production-ready scanner
+
+#### CLI Integration
+- `python main.py --pairs EURGBP`: Scan EUR/GBP with validated strategy
+- `python main.py --pairs CADJPY,EURCHF,EURGBP`: Scan all validated pairs
+
+---
+
 ### Version 2.5.0 (December 2025) - Granular Confluence Scoring
 *Improved scoring system with continuous values and better signal representation*
 
@@ -944,5 +1031,5 @@ This software is for educational purposes only. Trading forex involves substanti
 ---
 
 **Author**: Forex Scalper Agent V2
-**Version**: 2.5.0
+**Version**: 3.5.0
 **Last Updated**: December 2025
