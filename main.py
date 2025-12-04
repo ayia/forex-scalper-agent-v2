@@ -5,13 +5,13 @@ Forex Scalper Agent V2 - Main Entry Point
 Lightweight CLI entry point that delegates to the core scanner.
 
 Usage:
-    python main.py --once                    # Single scan
-    python main.py --json                    # JSON output
+    python main.py --pairs CADJPY            # Scan CADJPY with optimized strategy (JSON output)
+    python main.py --pairs CADJPY,EURJPY     # Scan multiple optimized pairs
+    python main.py --pairs CADJPY --active-only  # Only BUY/SELL signals
+    python main.py --once                    # Single scan (legacy)
+    python main.py --json                    # JSON output (legacy)
     python main.py --mtf-json                # MTF signals as JSON
-    python main.py --pairs USDJPY,USDCHF     # Custom pairs
-    python main.py --improved-only           # Validated pairs only
-    python main.py --optimized-cross         # 10 profitable cross pairs with optimal configs
-    python main.py --optimized-cross --active-only  # Only BUY/SELL signals
+    python main.py --optimized-cross         # All 6 profitable cross pairs
     python main.py --interval 300            # Continuous mode
 
 Part of Forex Scalper Agent V2 - Complete Architecture
@@ -21,8 +21,8 @@ import logging
 import argparse
 import json
 
-# Suppress all logging if --mtf-json or --optimized-cross flag is present
-if '--mtf-json' in sys.argv or '--optimized-cross' in sys.argv:
+# Suppress all logging if --mtf-json, --optimized-cross, or --pairs flag is present
+if '--mtf-json' in sys.argv or '--optimized-cross' in sys.argv or '--pairs' in sys.argv:
     logging.disable(logging.CRITICAL)
     try:
         from loguru import logger as loguru_logger
@@ -52,22 +52,19 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python main.py --once                    Run a single scan
-  python main.py --json --once             Single scan with JSON output
+  python main.py --pairs CADJPY            Scan CADJPY with optimized strategy (JSON)
+  python main.py --pairs CADJPY,EURJPY     Scan multiple optimized pairs
+  python main.py --pairs CADJPY --active-only  Only BUY/SELL signals
+  python main.py --optimized-cross         All 6 profitable cross pairs
+  python main.py --once                    Run a single scan (legacy mode)
   python main.py --mtf-json                Get MTF signals as JSON
-  python main.py --pairs USDJPY,USDCHF     Scan specific pairs
-  python main.py --improved-only           Scan backtest-validated pairs
-  python main.py --optimized-cross         10 profitable cross pairs (optimized configs)
-  python main.py --optimized-cross --active-only   Only BUY/SELL signals (no WATCH)
   python main.py --interval 300            Continuous mode (5 min interval)
 
-Strategies:
-  - TrendFollowing: EMA stack + MACD crossover
-  - MeanReversion: Bollinger Bands + RSI extremes
-  - Breakout: Donchian Channels + Volume
-  - ImprovedTrend v2.3: Backtest-validated (+6.46% profit)
-  - ImprovedScalping v2.3: For USDJPY, USDCHF
-  - OptimizedCross: 10 cross pairs with pair-specific optimization (PF 1.01-1.11)
+Optimized Pairs (validated 2-year backtest):
+  - CADJPY: Best performer, PF=1.13, +46% ROI/2 years
+  - EURCAD, EURJPY, GBPJPY, CHFJPY, GBPAUD
+
+Strategy: EMA Crossover (8/21/50) with pair-specific configs
         """
     )
 
@@ -134,7 +131,7 @@ Strategies:
     parser.add_argument(
         '--version',
         action='version',
-        version='Forex Scalper Agent V2.3'
+        version='Forex Scalper Agent V2.6'
     )
 
     args = parser.parse_args()
@@ -148,7 +145,48 @@ Strategies:
     if args.pairs:
         custom_pairs = [p.strip().upper() for p in args.pairs.split(',')]
 
-    # Import scanner (after logging setup to respect --mtf-json)
+    # Import optimized cross scanner for pairs mode
+    from core.optimized_cross_scanner import OptimizedCrossScanner, OPTIMAL_CONFIGS
+
+    # List of pairs that have optimized configs
+    OPTIMIZED_PAIRS = set(OPTIMAL_CONFIGS.keys())
+
+    # --pairs mode: Use optimized strategy for validated pairs (JSON output)
+    if args.pairs and custom_pairs:
+        # Check which pairs have optimized configs
+        optimized_request = [p for p in custom_pairs if p in OPTIMIZED_PAIRS]
+        non_optimized = [p for p in custom_pairs if p not in OPTIMIZED_PAIRS]
+
+        if non_optimized:
+            # Warn about pairs without optimized configs
+            print(json.dumps({
+                "error": f"Pairs without optimized config: {non_optimized}",
+                "available_pairs": list(OPTIMIZED_PAIRS),
+                "hint": "Use one of the available optimized pairs for best results"
+            }, indent=2))
+            return
+
+        # Scan only the requested pairs with optimized configs
+        scanner = OptimizedCrossScanner()
+        scanner.pairs = optimized_request  # Override default pairs
+
+        signals = []
+        for pair in optimized_request:
+            result = scanner.scan_pair(pair)
+            if result:
+                signals.append(result)
+
+        # Sort by confluence score descending
+        signals.sort(key=lambda s: (-s['confluence_score'],))
+
+        # Filter to active signals only if --active-only is set
+        if args.active_only:
+            signals = [s for s in signals if s['direction'] in ['BUY', 'SELL']]
+
+        print(json.dumps(signals, indent=2))
+        return
+
+    # Import scanner for legacy modes (after logging setup)
     from core.scanner import ForexScalperV2
 
     # MTF JSON mode - output signals and exit
@@ -162,9 +200,8 @@ Strategies:
         print(json.dumps(signals, indent=2))
         return
 
-    # Optimized Cross Pairs mode - scan 10 profitable pairs with optimal configs
+    # Optimized Cross Pairs mode - scan all 6 profitable pairs with optimal configs
     if args.optimized_cross:
-        from core.optimized_cross_scanner import OptimizedCrossScanner
         scanner = OptimizedCrossScanner()
         signals = scanner.scan_all()
 
