@@ -9,19 +9,14 @@ VALIDATION STATUS (as of 2024-12):
     Anti-overfitting tests: Monte Carlo, Walk-Forward, Parameter Jitter
     Periods tested: COVID, Ukraine War, Banking Crisis, Fed Hiking, etc.
 
-    VALIDATED (3/4 tests passed):
+    VALIDATED (2 pairs):
     - CADJPY: EMA Crossover (8/21/50), 7/9 periods, WFE=309%
-    - EURGBP: Stochastic Crossover, 7/9 periods, WFE=124%
     - EURCHF: Mean Reversion Z-Score, PF=1.97, WR=50.8%, Monte Carlo 100%
-
-    NOT VALIDATED:
-    - EURJPY: MACD+Stoch (1/4) - Only 3/9 periods pass, WFO fails
 
 Usage:
     python main.py --pairs CADJPY            # Scan CADJPY (validated)
-    python main.py --pairs EURGBP            # Scan EURGBP (validated)
     python main.py --pairs EURCHF            # Scan EURCHF (validated)
-    python main.py --pairs CADJPY,EURGBP     # Scan both validated pairs
+    python main.py --pairs CADJPY,EURCHF     # Scan both validated pairs
     python main.py --pairs CADJPY --active-only  # Only BUY/SELL signals
 
 Part of Forex Scalper Agent V3.4
@@ -31,8 +26,8 @@ import logging
 import argparse
 import json
 
-# Suppress all logging if --mtf-json, --optimized-cross, --eurgbp-stochastic, or --pairs flag is present
-if '--mtf-json' in sys.argv or '--optimized-cross' in sys.argv or '--pairs' in sys.argv or '--eurgbp-stochastic' in sys.argv:
+# Suppress all logging if --mtf-json, --optimized-cross, or --pairs flag is present
+if '--mtf-json' in sys.argv or '--optimized-cross' in sys.argv or '--pairs' in sys.argv:
     logging.disable(logging.CRITICAL)
     try:
         from loguru import logger as loguru_logger
@@ -63,18 +58,13 @@ def main():
         epilog="""
 Examples:
   python main.py --pairs CADJPY              Scan CADJPY (VALIDATED - EMA Crossover)
-  python main.py --pairs EURGBP              Scan EURGBP (VALIDATED - Stochastic)
   python main.py --pairs EURCHF              Scan EURCHF (VALIDATED - Mean Reversion)
-  python main.py --pairs CADJPY,EURGBP       Scan both validated pairs
+  python main.py --pairs CADJPY,EURCHF       Scan both validated pairs
   python main.py --pairs CADJPY --active-only  Only BUY/SELL signals
 
 Validated Pairs (tested on 9 historical periods including COVID, Ukraine War):
   - CADJPY: EMA Crossover (8/21/50), 7/9 periods pass, WFE=309%
-  - EURGBP: Stochastic Crossover, 7/9 periods pass, WFE=124%
   - EURCHF: Mean Reversion Z-Score, PF=1.97, WR=50.8%, Monte Carlo 100%
-
-Not Validated (need different strategy):
-  - EURJPY: MACD+Stoch fails (only 3/9 periods)
         """
     )
 
@@ -127,11 +117,6 @@ Not Validated (need different strategy):
         help='With --optimized-cross: show only active signals (BUY/SELL), exclude WATCH'
     )
     parser.add_argument(
-        '--eurgbp-stochastic',
-        action='store_true',
-        help='Scan EUR/GBP with Stochastic Crossover strategy and regime filter (JSON output)'
-    )
-    parser.add_argument(
         '--balance',
         type=float,
         default=10000.0,
@@ -146,7 +131,7 @@ Not Validated (need different strategy):
     parser.add_argument(
         '--version',
         action='version',
-        version='Forex Scalper Agent V3.4 (CADJPY + EURGBP + EURCHF validated)'
+        version='Forex Scalper Agent V3.4 (CADJPY + EURCHF validated)'
     )
 
     args = parser.parse_args()
@@ -169,21 +154,15 @@ Not Validated (need different strategy):
     # --pairs mode: Use optimized strategy for validated pairs (JSON output)
     if args.pairs and custom_pairs:
         # Import dedicated scanners
-        from core.eurgbp_stochastic_scanner import EURGBPStochasticScanner
-        from core.eurjpy_macd_stoch_scanner import EURJPYMACDStochScanner
         from core.eurchf_mean_reversion_scanner import EURCHFMeanReversionScanner
 
         # Pairs with dedicated scanners
-        STOCHASTIC_PAIRS = {'EURGBP'}
-        MACD_STOCH_PAIRS = {'EURJPY'}
         MEAN_REVERSION_PAIRS = {'EURCHF'}
 
-        # All available optimized pairs (EMA + Stochastic + MACD + Mean Reversion)
-        ALL_AVAILABLE_PAIRS = OPTIMIZED_PAIRS | STOCHASTIC_PAIRS | MACD_STOCH_PAIRS | MEAN_REVERSION_PAIRS
+        # All available optimized pairs (EMA + Mean Reversion)
+        ALL_AVAILABLE_PAIRS = OPTIMIZED_PAIRS | MEAN_REVERSION_PAIRS
 
         # Separate pairs by strategy type
-        eurgbp_request = [p for p in custom_pairs if p in STOCHASTIC_PAIRS]
-        eurjpy_request = [p for p in custom_pairs if p in MACD_STOCH_PAIRS]
         eurchf_request = [p for p in custom_pairs if p in MEAN_REVERSION_PAIRS]
         ema_request = [p for p in custom_pairs if p in OPTIMIZED_PAIRS]
         non_optimized = [p for p in custom_pairs if p not in ALL_AVAILABLE_PAIRS]
@@ -198,23 +177,6 @@ Not Validated (need different strategy):
             return
 
         signals = []
-
-        # Scan EURGBP with Stochastic scanner
-        if eurgbp_request:
-            eurgbp_scanner = EURGBPStochasticScanner()
-            result = eurgbp_scanner.scan()
-            if result and 'error' not in result:
-                # Add confluence_score for sorting compatibility
-                result['confluence_score'] = 75 if result['regime_tradeable'] else 25
-                signals.append(result)
-
-        # Scan EURJPY with MACD+Stochastic scanner
-        if eurjpy_request:
-            eurjpy_scanner = EURJPYMACDStochScanner()
-            result = eurjpy_scanner.scan()
-            if result and 'error' not in result:
-                # confluence_score already included in scanner
-                signals.append(result)
 
         # Scan EURCHF with Mean Reversion scanner
         if eurchf_request:
@@ -267,19 +229,6 @@ Not Validated (need different strategy):
             signals = [s for s in signals if s['direction'] in ['BUY', 'SELL']]
 
         print(json.dumps(signals, indent=2))
-        return
-
-    # EUR/GBP Stochastic mode - scan with regime filter
-    if args.eurgbp_stochastic:
-        from core.eurgbp_stochastic_scanner import EURGBPStochasticScanner
-        scanner = EURGBPStochasticScanner()
-        result = scanner.scan()
-
-        # Filter blocked signals if --active-only
-        if args.active_only and result.get('direction') in ['WATCH', 'BLOCKED']:
-            print(json.dumps([], indent=2))
-        else:
-            print(json.dumps(result, indent=2))
         return
 
     # Initialize scanner
