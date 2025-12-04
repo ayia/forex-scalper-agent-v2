@@ -1,28 +1,28 @@
 #!/usr/bin/env python3
 """
-Forex Scalper Agent V2 - Main Entry Point
-==========================================
-Lightweight CLI entry point that delegates to the core scanner.
+Forex Scalper Agent V3.0 - Main Entry Point
+============================================
+Lightweight CLI entry point for VALIDATED strategies only.
+
+Validated Pairs:
+    - CADJPY: EMA Crossover (8/21/50), PF=1.10, R:R=2.5
+    - EURGBP: Stochastic Crossover, PF=1.10, R:R=2.0 (with regime filter)
 
 Usage:
-    python main.py --pairs CADJPY            # Scan CADJPY with optimized strategy (JSON output)
-    python main.py --pairs CADJPY,EURJPY     # Scan multiple optimized pairs
+    python main.py --pairs CADJPY            # Scan CADJPY (EMA strategy)
+    python main.py --pairs EURGBP            # Scan EURGBP (Stochastic strategy)
+    python main.py --pairs CADJPY,EURGBP     # Scan both validated pairs
     python main.py --pairs CADJPY --active-only  # Only BUY/SELL signals
-    python main.py --once                    # Single scan (legacy)
-    python main.py --json                    # JSON output (legacy)
-    python main.py --mtf-json                # MTF signals as JSON
-    python main.py --optimized-cross         # All 6 profitable cross pairs
-    python main.py --interval 300            # Continuous mode
 
-Part of Forex Scalper Agent V2 - Complete Architecture
+Part of Forex Scalper Agent V3.0
 """
 import sys
 import logging
 import argparse
 import json
 
-# Suppress all logging if --mtf-json, --optimized-cross, or --pairs flag is present
-if '--mtf-json' in sys.argv or '--optimized-cross' in sys.argv or '--pairs' in sys.argv:
+# Suppress all logging if --mtf-json, --optimized-cross, --eurgbp-stochastic, or --pairs flag is present
+if '--mtf-json' in sys.argv or '--optimized-cross' in sys.argv or '--pairs' in sys.argv or '--eurgbp-stochastic' in sys.argv:
     logging.disable(logging.CRITICAL)
     try:
         from loguru import logger as loguru_logger
@@ -52,19 +52,14 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python main.py --pairs CADJPY            Scan CADJPY with optimized strategy (JSON)
-  python main.py --pairs CADJPY,EURJPY     Scan multiple optimized pairs
+  python main.py --pairs CADJPY            Scan CADJPY (EMA Crossover)
+  python main.py --pairs EURGBP            Scan EURGBP (Stochastic Crossover)
+  python main.py --pairs CADJPY,EURGBP     Scan both validated pairs
   python main.py --pairs CADJPY --active-only  Only BUY/SELL signals
-  python main.py --optimized-cross         All 6 profitable cross pairs
-  python main.py --once                    Run a single scan (legacy mode)
-  python main.py --mtf-json                Get MTF signals as JSON
-  python main.py --interval 300            Continuous mode (5 min interval)
 
-Optimized Pairs (validated 2-year backtest):
-  - CADJPY: Best performer, PF=1.13, +46% ROI/2 years
-  - EURCAD, EURJPY, GBPJPY, CHFJPY, GBPAUD
-
-Strategy: EMA Crossover (8/21/50) with pair-specific configs
+Validated Pairs (backtest-proven):
+  - CADJPY: EMA Crossover (8/21/50), PF=1.10, R:R=2.5
+  - EURGBP: Stochastic Crossover, PF=1.10, R:R=2.0 (with regime filter)
         """
     )
 
@@ -117,6 +112,11 @@ Strategy: EMA Crossover (8/21/50) with pair-specific configs
         help='With --optimized-cross: show only active signals (BUY/SELL), exclude WATCH'
     )
     parser.add_argument(
+        '--eurgbp-stochastic',
+        action='store_true',
+        help='Scan EUR/GBP with Stochastic Crossover strategy and regime filter (JSON output)'
+    )
+    parser.add_argument(
         '--balance',
         type=float,
         default=10000.0,
@@ -131,7 +131,7 @@ Strategy: EMA Crossover (8/21/50) with pair-specific configs
     parser.add_argument(
         '--version',
         action='version',
-        version='Forex Scalper Agent V2.6'
+        version='Forex Scalper Agent V3.0'
     )
 
     args = parser.parse_args()
@@ -153,31 +153,51 @@ Strategy: EMA Crossover (8/21/50) with pair-specific configs
 
     # --pairs mode: Use optimized strategy for validated pairs (JSON output)
     if args.pairs and custom_pairs:
-        # Check which pairs have optimized configs
-        optimized_request = [p for p in custom_pairs if p in OPTIMIZED_PAIRS]
-        non_optimized = [p for p in custom_pairs if p not in OPTIMIZED_PAIRS]
+        # Import EURGBP scanner for Stochastic strategy
+        from core.eurgbp_stochastic_scanner import EURGBPStochasticScanner
+
+        # EURGBP uses dedicated Stochastic scanner
+        STOCHASTIC_PAIRS = {'EURGBP'}
+
+        # All available optimized pairs (EMA + Stochastic)
+        ALL_AVAILABLE_PAIRS = OPTIMIZED_PAIRS | STOCHASTIC_PAIRS
+
+        # Separate pairs by strategy type
+        eurgbp_request = [p for p in custom_pairs if p in STOCHASTIC_PAIRS]
+        ema_request = [p for p in custom_pairs if p in OPTIMIZED_PAIRS]
+        non_optimized = [p for p in custom_pairs if p not in ALL_AVAILABLE_PAIRS]
 
         if non_optimized:
             # Warn about pairs without optimized configs
             print(json.dumps({
                 "error": f"Pairs without optimized config: {non_optimized}",
-                "available_pairs": list(OPTIMIZED_PAIRS),
+                "available_pairs": sorted(list(ALL_AVAILABLE_PAIRS)),
                 "hint": "Use one of the available optimized pairs for best results"
             }, indent=2))
             return
 
-        # Scan only the requested pairs with optimized configs
-        scanner = OptimizedCrossScanner()
-        scanner.pairs = optimized_request  # Override default pairs
-
         signals = []
-        for pair in optimized_request:
-            result = scanner.scan_pair(pair)
-            if result:
+
+        # Scan EURGBP with Stochastic scanner
+        if eurgbp_request:
+            eurgbp_scanner = EURGBPStochasticScanner()
+            result = eurgbp_scanner.scan()
+            if result and 'error' not in result:
+                # Add confluence_score for sorting compatibility
+                result['confluence_score'] = 75 if result['regime_tradeable'] else 25
                 signals.append(result)
 
+        # Scan other pairs with EMA CrossOver scanner
+        if ema_request:
+            scanner = OptimizedCrossScanner()
+            scanner.pairs = ema_request
+            for pair in ema_request:
+                result = scanner.scan_pair(pair)
+                if result:
+                    signals.append(result)
+
         # Sort by confluence score descending
-        signals.sort(key=lambda s: (-s['confluence_score'],))
+        signals.sort(key=lambda s: (-s.get('confluence_score', 0),))
 
         # Filter to active signals only if --active-only is set
         if args.active_only:
@@ -210,6 +230,19 @@ Strategy: EMA Crossover (8/21/50) with pair-specific configs
             signals = [s for s in signals if s['direction'] in ['BUY', 'SELL']]
 
         print(json.dumps(signals, indent=2))
+        return
+
+    # EUR/GBP Stochastic mode - scan with regime filter
+    if args.eurgbp_stochastic:
+        from core.eurgbp_stochastic_scanner import EURGBPStochasticScanner
+        scanner = EURGBPStochasticScanner()
+        result = scanner.scan()
+
+        # Filter blocked signals if --active-only
+        if args.active_only and result.get('direction') in ['WATCH', 'BLOCKED']:
+            print(json.dumps([], indent=2))
+        else:
+            print(json.dumps(result, indent=2))
         return
 
     # Initialize scanner

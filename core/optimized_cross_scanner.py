@@ -1,21 +1,17 @@
 #!/usr/bin/env python3
 """
-Optimized Cross Pairs Scanner V2.6
+Optimized Cross Pairs Scanner V3.0
 ==================================
-Scanner for 6 ROBUST cross pairs validated across multiple market regimes.
+Scanner for VALIDATED pairs only (backtest-proven strategies).
 
-Selection criteria (from backtest on 5 critical periods: 2019-2024):
-- Positive PnL across multiple periods
-- Profit Factor >= 1.0 in 3+ periods
-- Maximum drawdown < 25%
-- Consistent performance in trending, ranging, and volatile markets
+Currently validated pairs:
+- CADJPY: EMA Crossover (8/21/50), PF=1.10, R:R=2.5
 
-Removed pairs (underperforming on historical stress tests):
-- NZDJPY, AUDJPY, EURAUD, GBPCAD (negative PnL on critical periods)
+Note: EURGBP uses dedicated Stochastic scanner (eurgbp_stochastic_scanner.py)
 
 Usage:
-    python main.py --optimized-cross
-    python main.py --optimized-cross --active-only
+    python main.py --pairs CADJPY
+    python main.py --pairs CADJPY --active-only
 
 Part of Forex Scalper Agent V2
 """
@@ -26,23 +22,13 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 # =============================================================================
-# V2.6 ROBUST CONFIGURATIONS - Validated on 5 critical periods (2019-2024)
+# V3.0 VALIDATED CONFIGURATIONS - Only backtest-proven pairs
 # =============================================================================
-# COVID Crash 2020, JPY Crisis 2022, Ranging 2019, Recovery 2021, Recent 2024
-# Only pairs with consistent profitability across regimes are included
+# CADJPY: EMA Crossover validated on 2-year backtest (2022-2024)
 
 OPTIMAL_CONFIGS = {
-    # TOP TIER - Best performers (highest PnL, lowest drawdown)
-    'EURCAD': {'rr': 2.5, 'adx': 15, 'rsi': (35, 65), 'score': 6, 'pf': 1.27, 'trades': 150, 'max_dd': 11.7},
-    'EURJPY': {'rr': 1.8, 'adx': 20, 'rsi': (25, 75), 'score': 5, 'pf': 1.06, 'trades': 464, 'max_dd': 17.8},
-    'GBPJPY': {'rr': 1.2, 'adx': 25, 'rsi': (30, 70), 'score': 6, 'pf': 1.10, 'trades': 327, 'max_dd': 13.7},
-
-    # SECOND TIER - Solid performers (high volume, consistent)
-    'CHFJPY': {'rr': 1.5, 'adx': 25, 'rsi': (25, 75), 'score': 4, 'pf': 1.06, 'trades': 515, 'max_dd': 20.6},
-    'CADJPY': {'rr': 2.5, 'adx': 25, 'rsi': (35, 65), 'score': 6, 'pf': 1.03, 'trades': 176, 'max_dd': 18.4},
-
-    # THIRD TIER - Robust (PF>=1 in 3+ periods, but higher drawdown)
-    'GBPAUD': {'rr': 2.5, 'adx': 12, 'rsi': (35, 65), 'score': 6, 'pf': 1.00, 'trades': 221, 'max_dd': 30.4},
+    # CADJPY - EMA Crossover Strategy (validated)
+    'CADJPY': {'rr': 2.5, 'adx': 25, 'rsi': (35, 65), 'score': 6, 'pf': 1.10, 'trades': 370, 'max_dd': 18.4},
 }
 
 # Pairs sorted by Profit Factor (best first)
