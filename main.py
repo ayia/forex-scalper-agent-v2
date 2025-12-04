@@ -1,22 +1,30 @@
 #!/usr/bin/env python3
 """
-Forex Scalper Agent V3.1 - Main Entry Point
+Forex Scalper Agent V3.4 - Main Entry Point
 ============================================
 Lightweight CLI entry point for VALIDATED strategies only.
 
-Validated Pairs:
-    - CADJPY: EMA Crossover (8/21/50), PF=1.10, R:R=2.5
-    - EURGBP: Stochastic Crossover, PF=1.10, R:R=2.0 (with regime filter)
-    - EURJPY: MACD+Stochastic, PF=1.27, R:R=1.2 (with regime/session/volatility filter)
+VALIDATION STATUS (as of 2024-12):
+    Data Source: Twelve Data API (1H data back to 2017)
+    Anti-overfitting tests: Monte Carlo, Walk-Forward, Parameter Jitter
+    Periods tested: COVID, Ukraine War, Banking Crisis, Fed Hiking, etc.
+
+    VALIDATED (3/4 tests passed):
+    - CADJPY: EMA Crossover (8/21/50), 7/9 periods, WFE=309%
+    - EURGBP: Stochastic Crossover, 7/9 periods, WFE=124%
+    - EURCHF: Mean Reversion Z-Score, PF=1.97, WR=50.8%, Monte Carlo 100%
+
+    NOT VALIDATED:
+    - EURJPY: MACD+Stoch (1/4) - Only 3/9 periods pass, WFO fails
 
 Usage:
-    python main.py --pairs CADJPY            # Scan CADJPY (EMA strategy)
-    python main.py --pairs EURGBP            # Scan EURGBP (Stochastic strategy)
-    python main.py --pairs EURJPY            # Scan EURJPY (MACD+Stochastic strategy)
-    python main.py --pairs CADJPY,EURGBP,EURJPY  # Scan all validated pairs
+    python main.py --pairs CADJPY            # Scan CADJPY (validated)
+    python main.py --pairs EURGBP            # Scan EURGBP (validated)
+    python main.py --pairs EURCHF            # Scan EURCHF (validated)
+    python main.py --pairs CADJPY,EURGBP     # Scan both validated pairs
     python main.py --pairs CADJPY --active-only  # Only BUY/SELL signals
 
-Part of Forex Scalper Agent V3.1
+Part of Forex Scalper Agent V3.4
 """
 import sys
 import logging
@@ -50,20 +58,23 @@ logger = logging.getLogger(__name__)
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description='Forex Scalper Agent V2 - Adaptive Trading System',
+        description='Forex Scalper Agent V3.4 - Adaptive Trading System',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python main.py --pairs CADJPY            Scan CADJPY (EMA Crossover)
-  python main.py --pairs EURGBP            Scan EURGBP (Stochastic Crossover)
-  python main.py --pairs EURJPY            Scan EURJPY (MACD+Stochastic)
-  python main.py --pairs CADJPY,EURGBP,EURJPY  Scan all validated pairs
+  python main.py --pairs CADJPY              Scan CADJPY (VALIDATED - EMA Crossover)
+  python main.py --pairs EURGBP              Scan EURGBP (VALIDATED - Stochastic)
+  python main.py --pairs EURCHF              Scan EURCHF (VALIDATED - Mean Reversion)
+  python main.py --pairs CADJPY,EURGBP       Scan both validated pairs
   python main.py --pairs CADJPY --active-only  Only BUY/SELL signals
 
-Validated Pairs (backtest-proven):
-  - CADJPY: EMA Crossover (8/21/50), PF=1.10, R:R=2.5
-  - EURGBP: Stochastic Crossover, PF=1.10, R:R=2.0 (with regime filter)
-  - EURJPY: MACD+Stochastic, PF=1.27, R:R=1.2 (with regime/session filter)
+Validated Pairs (tested on 9 historical periods including COVID, Ukraine War):
+  - CADJPY: EMA Crossover (8/21/50), 7/9 periods pass, WFE=309%
+  - EURGBP: Stochastic Crossover, 7/9 periods pass, WFE=124%
+  - EURCHF: Mean Reversion Z-Score, PF=1.97, WR=50.8%, Monte Carlo 100%
+
+Not Validated (need different strategy):
+  - EURJPY: MACD+Stoch fails (only 3/9 periods)
         """
     )
 
@@ -135,7 +146,7 @@ Validated Pairs (backtest-proven):
     parser.add_argument(
         '--version',
         action='version',
-        version='Forex Scalper Agent V3.1'
+        version='Forex Scalper Agent V3.4 (CADJPY + EURGBP + EURCHF validated)'
     )
 
     args = parser.parse_args()
@@ -160,17 +171,20 @@ Validated Pairs (backtest-proven):
         # Import dedicated scanners
         from core.eurgbp_stochastic_scanner import EURGBPStochasticScanner
         from core.eurjpy_macd_stoch_scanner import EURJPYMACDStochScanner
+        from core.eurchf_mean_reversion_scanner import EURCHFMeanReversionScanner
 
         # Pairs with dedicated scanners
         STOCHASTIC_PAIRS = {'EURGBP'}
         MACD_STOCH_PAIRS = {'EURJPY'}
+        MEAN_REVERSION_PAIRS = {'EURCHF'}
 
-        # All available optimized pairs (EMA + Stochastic + MACD)
-        ALL_AVAILABLE_PAIRS = OPTIMIZED_PAIRS | STOCHASTIC_PAIRS | MACD_STOCH_PAIRS
+        # All available optimized pairs (EMA + Stochastic + MACD + Mean Reversion)
+        ALL_AVAILABLE_PAIRS = OPTIMIZED_PAIRS | STOCHASTIC_PAIRS | MACD_STOCH_PAIRS | MEAN_REVERSION_PAIRS
 
         # Separate pairs by strategy type
         eurgbp_request = [p for p in custom_pairs if p in STOCHASTIC_PAIRS]
         eurjpy_request = [p for p in custom_pairs if p in MACD_STOCH_PAIRS]
+        eurchf_request = [p for p in custom_pairs if p in MEAN_REVERSION_PAIRS]
         ema_request = [p for p in custom_pairs if p in OPTIMIZED_PAIRS]
         non_optimized = [p for p in custom_pairs if p not in ALL_AVAILABLE_PAIRS]
 
@@ -198,6 +212,14 @@ Validated Pairs (backtest-proven):
         if eurjpy_request:
             eurjpy_scanner = EURJPYMACDStochScanner()
             result = eurjpy_scanner.scan()
+            if result and 'error' not in result:
+                # confluence_score already included in scanner
+                signals.append(result)
+
+        # Scan EURCHF with Mean Reversion scanner
+        if eurchf_request:
+            eurchf_scanner = EURCHFMeanReversionScanner()
+            result = eurchf_scanner.scan()
             if result and 'error' not in result:
                 # confluence_score already included in scanner
                 signals.append(result)
