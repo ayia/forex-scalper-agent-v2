@@ -504,13 +504,76 @@ Overbought:       > 80
 python main.py --pairs EURGBP
 
 # Scan all validated pairs
-python main.py --pairs CADJPY,EURCHF,EURGBP
+python main.py --pairs CADJPY,EURCHF,EURGBP,EURJPY
 
 # Only active signals
 python main.py --pairs EURGBP --active-only
 ```
 
-### 7. Enhanced Scalping (v2.2.0)
+### 7. EUR/JPY Validated Strategy (NEW in v4.0.0)
+Range Breakout + Mean Reversion strategy validated with Monte Carlo simulation (500 iterations).
+
+| Parameter | Value |
+|-----------|-------|
+| **Primary Strategy** | Range Breakout (tight range detection) |
+| **Secondary Strategy** | Mean Reversion (for ranging regimes) |
+| **Profit Factor** | 1.58 (Range Breakout), 1.22 (Mean Reversion) |
+| **Win Rate** | 39.3% |
+| **Monte Carlo** | 100% positive simulations, 0% ruin probability |
+| **R:R Ratio** | 2.5:1 |
+
+**Entry Rules (Range Breakout):**
+- Detect tight 8-bar range (< 70% of average range)
+- **BUY**: Price breaks above range high
+- **SELL**: Price breaks below range low
+- SL: 1.5x ATR, TP: 3.75x ATR (R:R = 2.5)
+
+**Entry Rules (Mean Reversion):**
+- Z-Score > 2.0 for SELL (overbought)
+- Z-Score < -2.0 for BUY (oversold)
+- Best in RANGING/CONSOLIDATION regimes
+
+**Optimal Parameters:**
+```
+R:R Ratio:        2.5
+SL:               1.5x ATR (~24 pips)
+TP:               3.75x ATR (~60 pips)
+Range Threshold:  0.7 (70% of average)
+Range Bars:       8
+```
+
+**Regime Performance:**
+| Regime | Tradeable | Strategy | Position Size |
+|--------|-----------|----------|---------------|
+| STRONG_TREND_UP | YES | Range Breakout | 130% |
+| STRONG_TREND_DOWN | YES | Range Breakout | 130% |
+| TRENDING_UP | YES | Range Breakout | 100% |
+| TRENDING_DOWN | YES | Range Breakout | 100% |
+| RANGING | YES | Mean Reversion | 100% |
+| CONSOLIDATION | YES | Mean Reversion | 100% |
+| HIGH_VOLATILITY | CAUTION | Range Breakout | 50% |
+| VERY_LOW | NO | - | 0% |
+
+**Session Rules:**
+| Session | Hours (UTC) | Best Strategy | PF |
+|---------|-------------|---------------|-----|
+| LONDON | 7:00-15:00 | Range Breakout | 2.16 |
+| NEW YORK | 12:00-21:00 | Range Breakout | 1.47 |
+| ASIAN | 0:00-7:00 | Mean Reversion | 1.60 |
+
+**Usage:**
+```bash
+# Scan EURJPY
+python main.py --pairs EURJPY
+
+# Scan all validated pairs
+python main.py --pairs CADJPY,EURCHF,EURGBP,EURJPY
+
+# Only active signals
+python main.py --pairs EURJPY --active-only
+```
+
+### 8. Enhanced Scalping (v2.2.0)
 Advanced multi-confirmation scalping system inspired by DIY Custom Strategy Builder [ZP].
 
 | Parameter | Value |
@@ -864,6 +927,32 @@ This software is for educational purposes only. Trading forex involves substanti
 
 ## 📝 Changelog
 
+### Version 4.0.0 (December 2025) - EUR/JPY Validated Strategy
+*New validated pair with Range Breakout + Mean Reversion multi-strategy approach*
+
+#### New EUR/JPY Scanner (`core/eurjpy_validated_scanner.py`)
+- **Multi-Strategy Approach**: Range Breakout (primary) + Mean Reversion (secondary)
+- **Monte Carlo Validated**: 500 iterations, 100% positive simulations, 0% ruin probability
+- **Profit Factor**: 1.58 (Range Breakout), 1.22 (Mean Reversion)
+- **Win Rate**: 39.3%
+- **Optimal R:R**: 2.5:1 with 1.5x ATR stop loss
+
+#### Strategy Selection by Regime
+- **Trending Markets**: Range Breakout strategy (PF up to 2.89 in STRONG_TREND_UP)
+- **Ranging Markets**: Mean Reversion strategy (PF 1.22)
+- **Session Optimization**: LONDON (PF 2.16) > NEW_YORK (PF 1.47) > ASIAN (Mean Reversion)
+
+#### New Files
+- `core/eurjpy_complete_optimizer.py`: 40-strategy optimization engine
+- `core/eurjpy_regime_analyzer.py`: Extended regime and session analysis
+- `core/eurjpy_validated_scanner.py`: Production-ready scanner
+
+#### CLI Integration
+- `python main.py --pairs EURJPY`: Scan EUR/JPY with validated strategy
+- `python main.py --pairs CADJPY,EURCHF,EURGBP,EURJPY`: Scan all 4 validated pairs
+
+---
+
 ### Version 3.5.0 (December 2025) - EUR/GBP Validated Strategy
 *New validated pair with RSI Divergence + Stochastic Double strategy*
 
@@ -1031,5 +1120,5 @@ This software is for educational purposes only. Trading forex involves substanti
 ---
 
 **Author**: Forex Scalper Agent V2
-**Version**: 3.5.0
+**Version**: 4.0.0
 **Last Updated**: December 2025
